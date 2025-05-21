@@ -1,3 +1,4 @@
+
 'use client';
 
 import { useEffect, useState } from 'react';
@@ -12,9 +13,19 @@ import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Textarea } from '@/components/ui/textarea';
+import { Input } from '@/components/ui/input';
+import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from '@/components/ui/form';
+import { useForm } from 'react-hook-form';
+import { zodResolver } from '@hookform/resolvers/zod';
+import * as z from 'zod';
 import { format } from 'date-fns';
-import { CalendarDays, User, Tag, Briefcase, MessageSquare, History, CheckCircle, AlertTriangle, Edit3 } from 'lucide-react';
+import { CalendarDays, User, Tag, Briefcase, MessageSquare, History, CheckCircle, AlertTriangle, Edit3, PlusCircle, Clock } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
+
+const logFormSchema = z.object({
+  hoursSpent: z.coerce.number().min(0.1, "Hours spent must be greater than 0."),
+  workDescription: z.string().min(10, "Work description must be at least 10 characters."),
+});
 
 export default function TaskDetailPage() {
   const params = useParams();
@@ -23,6 +34,14 @@ export default function TaskDetailPage() {
   const { toast } = useToast();
   const [task, setTask] = useState<Task | null | undefined>(undefined); // undefined for loading, null for not found
   const [newComment, setNewComment] = useState('');
+
+  const logForm = useForm<z.infer<typeof logFormSchema>>({
+    resolver: zodResolver(logFormSchema),
+    defaultValues: {
+      hoursSpent: 0,
+      workDescription: '',
+    },
+  });
 
   useEffect(() => {
     if (params.id) {
@@ -34,7 +53,6 @@ export default function TaskDetailPage() {
   const handleRequestCompletion = () => {
     if (task && currentUser && task.assigneeId === currentUser.id && task.status === 'In Progress') {
       const updatedTask = { ...task, status: 'Completed' as const };
-      // Update mock data
       const taskIndex = mockTasks.findIndex(t => t.id === task.id);
       if (taskIndex !== -1) mockTasks[taskIndex] = updatedTask;
       setTask(updatedTask);
@@ -69,6 +87,24 @@ export default function TaskDetailPage() {
     setNewComment('');
     toast({ title: 'Success', description: 'Comment added.' });
   };
+
+  const handleAddLog = (values: z.infer<typeof logFormSchema>) => {
+    if (!task || !currentUser) return;
+    const newLog: TaskLog = {
+      id: `log${(task.logs?.length || 0) + 1}`,
+      userId: currentUser.id,
+      userName: currentUser.name,
+      hoursSpent: values.hoursSpent,
+      workDescription: values.workDescription,
+      date: new Date().toISOString(),
+    };
+    const updatedTask = { ...task, logs: [...(task.logs || []), newLog] };
+    const taskIndex = mockTasks.findIndex(t => t.id === task.id);
+    if (taskIndex !== -1) mockTasks[taskIndex] = updatedTask;
+    setTask(updatedTask);
+    logForm.reset();
+    toast({ title: 'Success', description: 'Work log added.' });
+  };
   
   const getStatusVariant = (status: Task['status']): "default" | "secondary" | "destructive" | "outline" => {
     switch (status) {
@@ -89,11 +125,13 @@ export default function TaskDetailPage() {
     }
   };
 
-  if (task === undefined) return <p className="text-center py-10">Loading task details...</p>;
-  if (!task) return <p className="text-center py-10 text-destructive">Task not found.</p>;
+  if (task === undefined) return <div className="flex justify-center items-center h-64"><AlertTriangle className="w-8 h-8 text-yellow-500 mr-2" /> Loading task details...</div>;
+  if (!task) return <div className="flex justify-center items-center h-64"><XCircle className="w-8 h-8 text-destructive mr-2" />Task not found.</div>;
+
 
   const canRequestCompletion = currentUser?.id === task.assigneeId && task.status === 'In Progress';
   const canApprove = isAdmin && task.status === 'Completed';
+  const canLogTime = currentUser?.id === task.assigneeId && (task.status === 'In Progress' || task.status === 'Pending');
 
   return (
     <div className="max-w-4xl mx-auto space-y-6">
@@ -129,16 +167,15 @@ export default function TaskDetailPage() {
             <Button onClick={handleRequestCompletion}><CheckCircle className="mr-2 h-4 w-4" /> Request Completion</Button>
           )}
           {canApprove && (
-            <Button onClick={handleApproveTask} className="bg-green-600 hover:bg-green-700"><CheckCircle className="mr-2 h-4 w-4" /> Approve Task</Button>
+            <Button onClick={handleApproveTask}><CheckCircle className="mr-2 h-4 w-4" /> Approve Task</Button>
           )}
         </CardFooter>
       </Card>
 
       <Tabs defaultValue="comments" className="w-full">
-        <TabsList className="grid w-full grid-cols-2 md:grid-cols-2"> {/* Changed from 3 to 2 */}
+        <TabsList className="grid w-full grid-cols-2 md:grid-cols-2">
           <TabsTrigger value="comments"><MessageSquare className="w-4 h-4 mr-2 inline-block"/>Comments</TabsTrigger>
           <TabsTrigger value="logs"><History className="w-4 h-4 mr-2 inline-block"/>Activity Logs</TabsTrigger>
-          {/* <TabsTrigger value="attachments"><Paperclip className="w-4 h-4 mr-2 inline-block"/>Attachments</TabsTrigger> */}
         </TabsList>
         <TabsContent value="comments" className="mt-4">
           <Card>
@@ -168,7 +205,7 @@ export default function TaskDetailPage() {
                   onChange={(e) => setNewComment(e.target.value)}
                   rows={3}
                 />
-                <Button onClick={handleAddComment} disabled={!newComment.trim()}>Add Comment</Button>
+                <Button onClick={handleAddComment} disabled={!newComment.trim()}><PlusCircle className="mr-2 h-4 w-4" />Add Comment</Button>
               </div>
             </CardContent>
           </Card>
@@ -180,22 +217,59 @@ export default function TaskDetailPage() {
               {(task.logs || []).length === 0 && <p className="text-muted-foreground">No activity logs yet.</p>}
               {(task.logs || []).slice().sort((a,b) => new Date(b.date).getTime() - new Date(a.date).getTime()).map(log => (
                 <div key={log.id} className="p-3 rounded-md border text-sm">
-                    <p><span className="font-semibold">{log.userName}</span> logged <span className="font-semibold">{log.hoursSpent} hours</span> on {format(new Date(log.date), 'PPP')}.</p>
+                    <div className="flex justify-between items-center">
+                        <p><span className="font-semibold">{log.userName}</span> logged <span className="font-semibold">{log.hoursSpent} hours</span></p>
+                        <p className="text-xs text-muted-foreground">{format(new Date(log.date), 'PPP HH:mm')}</p>
+                    </div>
                     <p className="text-muted-foreground mt-1">Description: {log.workDescription}</p>
                 </div>
               ))}
             </CardContent>
           </Card>
+
+          {canLogTime && (
+            <Card className="mt-6">
+              <CardHeader><CardTitle>Log Work</CardTitle></CardHeader>
+              <CardContent>
+                <Form {...logForm}>
+                  <form onSubmit={logForm.handleSubmit(handleAddLog)} className="space-y-4">
+                    <FormField
+                      control={logForm.control}
+                      name="hoursSpent"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel className="flex items-center"><Clock className="mr-2 h-4 w-4 text-muted-foreground" />Hours Spent</FormLabel>
+                          <FormControl>
+                            <Input type="number" step="0.1" placeholder="e.g., 2.5" {...field} />
+                          </FormControl>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+                    <FormField
+                      control={logForm.control}
+                      name="workDescription"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>Work Description</FormLabel>
+                          <FormControl>
+                            <Textarea placeholder="Describe the work you performed..." {...field} rows={3} />
+                          </FormControl>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+                    <Button type="submit" disabled={logForm.formState.isSubmitting}>
+                      <PlusCircle className="mr-2 h-4 w-4" /> Add Log
+                    </Button>
+                  </form>
+                </Form>
+              </CardContent>
+            </Card>
+          )}
         </TabsContent>
-        {/* <TabsContent value="attachments" className="mt-4">
-          <Card>
-            <CardHeader><CardTitle>Attachments</CardTitle></CardHeader>
-            <CardContent>
-              <p className="text-muted-foreground">No attachments yet. (Feature placeholder)</p>
-            </CardContent>
-          </Card>
-        </TabsContent> */}
       </Tabs>
     </div>
   );
 }
+
