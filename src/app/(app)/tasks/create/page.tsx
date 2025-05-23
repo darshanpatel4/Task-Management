@@ -1,3 +1,4 @@
+
 'use client';
 
 import { zodResolver } from '@hookform/resolvers/zod';
@@ -7,7 +8,6 @@ import { Button } from '@/components/ui/button';
 import {
   Form,
   FormControl,
-  FormDescription,
   FormField,
   FormItem,
   FormLabel,
@@ -18,55 +18,101 @@ import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Calendar } from '@/components/ui/calendar';
-import { CalendarIcon } from 'lucide-react';
+import { CalendarIcon, Loader2, AlertTriangle } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { format } from 'date-fns';
 import { useAuth } from '@/context/AuthContext';
 import { useRouter } from 'next/navigation';
-import { mockUsers, mockProjects, mockTasks } from '@/lib/mock-data';
 import type { TaskPriority, TaskStatus, User, Project } from '@/types';
 import { useToast } from '@/hooks/use-toast';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { supabase } from '@/lib/supabaseClient';
+import { useEffect, useState } from 'react';
 
 const taskPriorities: TaskPriority[] = ['Low', 'Medium', 'High'];
-const taskStatuses: TaskStatus[] = ['Pending', 'In Progress', 'Completed', 'Approved']; // Approved only by admin later
+// User can only set these statuses initially. 'Approved' is an admin action.
+const userSettableTaskStatuses: TaskStatus[] = ['Pending', 'In Progress', 'Completed']; 
 
 const formSchema = z.object({
   title: z.string().min(3, { message: 'Title must be at least 3 characters.' }),
   description: z.string().min(10, { message: 'Description must be at least 10 characters.' }),
-  assigneeId: z.string({ required_error: 'Assignee is required.' }),
+  assigneeId: z.string({ required_error: 'Assignee is required.' }).nullable(), // Can be unassigned
   dueDate: z.date({ required_error: 'Due date is required.' }),
   priority: z.enum(taskPriorities),
   projectId: z.string({ required_error: 'Project is required.' }),
-  status: z.enum(taskStatuses).default('Pending'),
+  status: z.enum(userSettableTaskStatuses).default('Pending'),
 });
 
+type TaskFormValues = z.infer<typeof formSchema>;
+
 export default function CreateTaskPage() {
-  const { isAdmin } = useAuth();
+  const { currentUser, isAdmin } = useAuth();
   const router = useRouter();
   const { toast } = useToast();
+  
+  const [users, setUsers] = useState<Pick<User, 'id' | 'name'>[]>([]);
+  const [projects, setProjects] = useState<Pick<Project, 'id' | 'name'>[]>([]);
+  const [isLoadingData, setIsLoadingData] = useState(true);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [dataError, setDataError] = useState<string | null>(null);
 
-  const form = useForm<z.infer<typeof formSchema>>({
+  const form = useForm<TaskFormValues>({
     resolver: zodResolver(formSchema),
     defaultValues: {
       title: '',
       description: '',
       priority: 'Medium',
       status: 'Pending',
+      assigneeId: null,
     },
   });
 
-  if (!isAdmin) {
-    // This should ideally be handled by middleware or layout protection
-    // router.replace('/dashboard'); 
-    // return <p>Access Denied. Redirecting...</p>;
-    // For now, show a message. Layout should prevent non-admins from reaching.
+  useEffect(() => {
+    async function fetchData() {
+      if (!supabase || !isAdmin) {
+        setIsLoadingData(false);
+        if (!isAdmin) setDataError("Access Denied. You must be an admin to create tasks.");
+        else setDataError("Supabase client not available.");
+        return;
+      }
+
+      setIsLoadingData(true);
+      setDataError(null);
+      try {
+        const [usersResponse, projectsResponse] = await Promise.all([
+          supabase.from('profiles').select('id, full_name'), // Fetching from profiles table
+          supabase.from('projects').select('id, name')
+        ]);
+
+        if (usersResponse.error) throw usersResponse.error;
+        if (projectsResponse.error) throw projectsResponse.error;
+
+        setUsers(usersResponse.data?.map(u => ({ id: u.id, name: u.full_name || 'Unnamed User' })) || []);
+        setProjects(projectsResponse.data || []);
+
+      } catch (error: any) {
+        console.error('Error fetching users or projects:', error);
+        setDataError('Failed to load necessary data. ' + error.message);
+        toast({
+          title: 'Error Loading Data',
+          description: 'Could not load users or projects. Please try again later.',
+          variant: 'destructive',
+        });
+      } finally {
+        setIsLoadingData(false);
+      }
+    }
+    fetchData();
+  }, [isAdmin, toast]);
+
+
+  if (!isAdmin && !isLoadingData && dataError) { // Check if dataError is set (includes admin check)
     return (
         <div className="flex items-center justify-center h-full">
             <Card className="w-full max-w-md">
                 <CardHeader>
-                    <CardTitle>Access Denied</CardTitle>
-                    <CardDescription>You do not have permission to create tasks.</CardDescription>
+                    <CardTitle className="flex items-center"><AlertTriangle className="mr-2 h-5 w-5 text-destructive" /> Access Denied</CardTitle>
+                    <CardDescription>{dataError}</CardDescription>
                 </CardHeader>
                 <CardContent>
                     <Button onClick={() => router.push('/dashboard')}>Go to Dashboard</Button>
@@ -75,25 +121,71 @@ export default function CreateTaskPage() {
         </div>
     );
   }
+  
+  if (!supabase && !isLoadingData) {
+     return (
+        <div className="flex items-center justify-center h-full">
+            <Card className="w-full max-w-md">
+                <CardHeader>
+                    <CardTitle className="flex items-center"><AlertTriangle className="mr-2 h-5 w-5 text-destructive" /> Configuration Error</CardTitle>
+                    <CardDescription>Supabase client is not configured. Please check environment variables.</CardDescription>
+                </CardHeader>
+                 <CardContent>
+                    <Button onClick={() => router.push('/dashboard')}>Go to Dashboard</Button>
+                </CardContent>
+            </Card>
+        </div>
+    );
+  }
 
-  function onSubmit(values: z.infer<typeof formSchema>) {
-    const assignee = mockUsers.find(u => u.id === values.assigneeId);
-    const project = mockProjects.find(p => p.id === values.projectId);
 
-    const newTask = {
-      id: `task${mockTasks.length + 1}`,
-      ...values,
-      dueDate: values.dueDate.toISOString(),
-      assigneeName: assignee?.name,
-      projectName: project?.name,
-      createdAt: new Date().toISOString(),
-    };
-    mockTasks.push(newTask); // Add to mock data
-    toast({
-      title: 'Task Created',
-      description: `Task "${values.title}" has been successfully created.`,
-    });
-    router.push('/tasks');
+  async function onSubmit(values: TaskFormValues) {
+    if (!currentUser || !supabase) {
+      toast({
+        title: 'Error',
+        description: 'User not authenticated or Supabase not available.',
+        variant: 'destructive',
+      });
+      return;
+    }
+    
+    setIsSubmitting(true);
+    try {
+      const taskToInsert = {
+        title: values.title,
+        description: values.description,
+        assignee_id: values.assigneeId,
+        due_date: values.dueDate.toISOString(),
+        priority: values.priority,
+        project_id: values.projectId,
+        status: values.status,
+        user_id: currentUser.id, // Creator of the task
+        // assigneeName and projectName are not directly inserted; they are derived via joins/relations
+      };
+
+      const { data, error } = await supabase
+        .from('tasks')
+        .insert([taskToInsert])
+        .select()
+        .single(); // Assuming you want the created task back
+
+      if (error) throw error;
+
+      toast({
+        title: 'Task Created',
+        description: `Task "${values.title}" has been successfully created.`,
+      });
+      router.push('/tasks'); // Or `/tasks/${data.id}` if you want to go to the new task's detail page
+    } catch (error: any) {
+      console.error('Error creating task:', error);
+      toast({
+        title: 'Error Creating Task',
+        description: error.message || 'An unexpected error occurred. Please try again.',
+        variant: 'destructive',
+      });
+    } finally {
+      setIsSubmitting(false);
+    }
   }
 
   return (
@@ -103,138 +195,157 @@ export default function CreateTaskPage() {
         <CardDescription>Fill in the details below to create a new task.</CardDescription>
       </CardHeader>
       <CardContent>
-        <Form {...form}>
-          <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
-            <FormField
-              control={form.control}
-              name="title"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Title</FormLabel>
-                  <FormControl><Input placeholder="Enter task title" {...field} /></FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-            <FormField
-              control={form.control}
-              name="description"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Description</FormLabel>
-                  <FormControl><Textarea placeholder="Provide a detailed task description" {...field} rows={5} /></FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+        {isLoadingData && (
+          <div className="flex justify-center items-center py-10">
+            <Loader2 className="mr-2 h-8 w-8 animate-spin" />
+            <p>Loading users and projects...</p>
+          </div>
+        )}
+        {dataError && !isLoadingData && (
+           <div className="flex flex-col items-center justify-center py-10 text-destructive">
+            <AlertTriangle className="mr-2 h-8 w-8" />
+            <p className="font-semibold">Error loading data</p>
+            <p>{dataError}</p>
+          </div>
+        )}
+        {!isLoadingData && !dataError && (
+          <Form {...form}>
+            <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
               <FormField
                 control={form.control}
-                name="assigneeId"
+                name="title"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>Assignee</FormLabel>
-                    <Select onValueChange={field.onChange} defaultValue={field.value}>
-                      <FormControl><SelectTrigger><SelectValue placeholder="Select an assignee" /></SelectTrigger></FormControl>
-                      <SelectContent>
-                        {mockUsers.map((user: User) => (
-                          <SelectItem key={user.id} value={user.id}>{user.name}</SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
+                    <FormLabel>Title</FormLabel>
+                    <FormControl><Input placeholder="Enter task title" {...field} /></FormControl>
                     <FormMessage />
                   </FormItem>
                 )}
               />
               <FormField
                 control={form.control}
-                name="dueDate"
-                render={({ field }) => (
-                  <FormItem className="flex flex-col">
-                    <FormLabel>Due Date</FormLabel>
-                    <Popover>
-                      <PopoverTrigger asChild>
-                        <FormControl>
-                          <Button
-                            variant={"outline"}
-                            className={cn("pl-3 text-left font-normal", !field.value && "text-muted-foreground")}
-                          >
-                            {field.value ? format(field.value, "PPP") : <span>Pick a date</span>}
-                            <CalendarIcon className="ml-auto h-4 w-4 opacity-50" />
-                          </Button>
-                        </FormControl>
-                      </PopoverTrigger>
-                      <PopoverContent className="w-auto p-0" align="start">
-                        <Calendar mode="single" selected={field.value} onSelect={field.onChange} initialFocus />
-                      </PopoverContent>
-                    </Popover>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-            </div>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              <FormField
-                control={form.control}
-                name="priority"
+                name="description"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>Priority</FormLabel>
-                    <Select onValueChange={field.onChange} defaultValue={field.value}>
-                      <FormControl><SelectTrigger><SelectValue placeholder="Select priority" /></SelectTrigger></FormControl>
-                      <SelectContent>
-                        {taskPriorities.map(priority => (
-                          <SelectItem key={priority} value={priority}>{priority}</SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
+                    <FormLabel>Description</FormLabel>
+                    <FormControl><Textarea placeholder="Provide a detailed task description" {...field} rows={5} /></FormControl>
                     <FormMessage />
                   </FormItem>
                 )}
               />
-              <FormField
-                control={form.control}
-                name="projectId"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Project</FormLabel>
-                    <Select onValueChange={field.onChange} defaultValue={field.value}>
-                      <FormControl><SelectTrigger><SelectValue placeholder="Select a project" /></SelectTrigger></FormControl>
-                      <SelectContent>
-                        {mockProjects.map((project: Project) => (
-                          <SelectItem key={project.id} value={project.id}>{project.name}</SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-            </div>
-             <FormField
-                control={form.control}
-                name="status"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Status</FormLabel>
-                    <Select onValueChange={field.onChange} defaultValue={field.value}>
-                      <FormControl><SelectTrigger><SelectValue placeholder="Select status" /></SelectTrigger></FormControl>
-                      <SelectContent>
-                        {taskStatuses.filter(s => s !== 'Approved').map(status => ( // Admin cannot set to approved initially
-                          <SelectItem key={status} value={status}>{status}</SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-            <div className="flex justify-end gap-2 pt-4">
-                <Button type="button" variant="outline" onClick={() => router.back()}>Cancel</Button>
-                <Button type="submit">Create Task</Button>
-            </div>
-          </form>
-        </Form>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <FormField
+                  control={form.control}
+                  name="assigneeId"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Assignee (Optional)</FormLabel>
+                      <Select onValueChange={field.onChange} value={field.value || ""}>
+                        <FormControl><SelectTrigger><SelectValue placeholder="Select an assignee" /></SelectTrigger></FormControl>
+                        <SelectContent>
+                          <SelectItem value="">Unassigned</SelectItem>
+                          {users.map((user) => (
+                            <SelectItem key={user.id} value={user.id}>{user.name}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                <FormField
+                  control={form.control}
+                  name="dueDate"
+                  render={({ field }) => (
+                    <FormItem className="flex flex-col">
+                      <FormLabel>Due Date</FormLabel>
+                      <Popover>
+                        <PopoverTrigger asChild>
+                          <FormControl>
+                            <Button
+                              variant={"outline"}
+                              className={cn("pl-3 text-left font-normal", !field.value && "text-muted-foreground")}
+                            >
+                              {field.value ? format(field.value, "PPP") : <span>Pick a date</span>}
+                              <CalendarIcon className="ml-auto h-4 w-4 opacity-50" />
+                            </Button>
+                          </FormControl>
+                        </PopoverTrigger>
+                        <PopoverContent className="w-auto p-0" align="start">
+                          <Calendar mode="single" selected={field.value} onSelect={field.onChange} initialFocus />
+                        </PopoverContent>
+                      </Popover>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <FormField
+                  control={form.control}
+                  name="priority"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Priority</FormLabel>
+                      <Select onValueChange={field.onChange} defaultValue={field.value}>
+                        <FormControl><SelectTrigger><SelectValue placeholder="Select priority" /></SelectTrigger></FormControl>
+                        <SelectContent>
+                          {taskPriorities.map(priority => (
+                            <SelectItem key={priority} value={priority}>{priority}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                <FormField
+                  control={form.control}
+                  name="projectId"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Project</FormLabel>
+                      <Select onValueChange={field.onChange} defaultValue={field.value}>
+                        <FormControl><SelectTrigger><SelectValue placeholder="Select a project" /></SelectTrigger></FormControl>
+                        <SelectContent>
+                          {projects.map((project) => (
+                            <SelectItem key={project.id} value={project.id}>{project.name}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+              </div>
+               <FormField
+                  control={form.control}
+                  name="status"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Status</FormLabel>
+                      <Select onValueChange={field.onChange} defaultValue={field.value}>
+                        <FormControl><SelectTrigger><SelectValue placeholder="Select status" /></SelectTrigger></FormControl>
+                        <SelectContent>
+                          {userSettableTaskStatuses.map(status => ( 
+                            <SelectItem key={status} value={status}>{status}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+              <div className="flex justify-end gap-2 pt-4">
+                  <Button type="button" variant="outline" onClick={() => router.back()} disabled={isSubmitting}>Cancel</Button>
+                  <Button type="submit" disabled={isSubmitting || isLoadingData}>
+                    {isSubmitting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                    Create Task
+                  </Button>
+              </div>
+            </form>
+          </Form>
+        )}
       </CardContent>
     </Card>
   );

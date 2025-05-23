@@ -3,8 +3,8 @@ export type UserRole = 'Admin' | 'User';
 
 export interface User {
   id: string;
-  name: string;
-  email: string;
+  name: string; // Corresponds to full_name in profiles
+  email: string; // From auth.users
   role: UserRole;
   avatar?: string; // URL to avatar image
 }
@@ -16,25 +16,25 @@ export interface Task {
   id: string; // uuid
   title: string;
   description: string;
-  assignee_id?: string; // User ID (from profiles)
-  assigneeName?: string; // Denormalized for easy display
-  dueDate?: string; // ISO date string
+  assignee_id?: string | null; // User ID (from profiles table)
+  assigneeName?: string | null; // Denormalized for easy display, fetched separately or via join
+  dueDate?: string | null; // ISO date string
   priority: TaskPriority;
-  project_id: string; // uuid
-  projectName?: string; // Denormalized for easy display
+  project_id: string; // uuid, foreign key to projects table
+  projectName?: string | null; // Denormalized for easy display, fetched separately or via join
   status: TaskStatus;
-  created_at: string; // ISO date string
-  user_id?: string; // uuid, creator
-  logs?: TaskLog[];
-  comments?: TaskComment[];
+  created_at?: string | null; // ISO date string, set by DB
+  user_id?: string | null; // uuid, creator (from auth.users)
+  comments?: TaskComment[] | null;
+  logs?: TaskLog[] | null;
 }
 
 export interface Project {
   id: string; // uuid
   name: string;
-  description?: string;
+  description?: string | null;
   user_id?: string | null; // uuid, creator, can be null if user is deleted
-  created_at?: string; // ISO date string
+  created_at?: string | null; // ISO date string
 }
 
 export interface TaskLog {
