@@ -1,42 +1,80 @@
 
 'use client';
 
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect, useCallback } from 'react';
 import { useAuth } from '@/context/AuthContext';
-import { mockTasks, mockUsers, mockProjects } from '@/lib/mock-data';
-import type { Task } from '@/types';
+import type { Task } from '@/types'; // TaskStatus is part of Task type
 import { Button } from '@/components/ui/button';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Badge } from '@/components/ui/badge';
-import { CheckCircle2, XCircle, Eye } from 'lucide-react';
+import { CheckCircle2, XCircle, Eye, Loader2, AlertTriangle } from 'lucide-react';
 import { format } from 'date-fns';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { useToast } from '@/hooks/use-toast';
-
+import { supabase } from '@/lib/supabaseClient';
 
 export default function ApprovalsPage() {
-  const { isAdmin } = useAuth();
+  const { currentUser, isAdmin } = useAuth();
   const router = useRouter();
   const { toast } = useToast();
   
-  // Local state to manage tasks for this demo page
-  const [tasks, setTasks] = useState<Task[]>(mockTasks.map(task => ({...task}))); // Create a deep copy for local state
+  const [tasks, setTasks] = useState<Task[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
-  const pendingApprovalTasks = useMemo(() => {
-    // Filter from the local 'tasks' state
-    return tasks.filter(task => task.status === 'Completed').sort((a,b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime());
-  }, [tasks]);
+  const fetchPendingApprovalTasks = useCallback(async () => {
+    if (!supabase || !isAdmin) {
+      setIsLoading(false);
+      setError(isAdmin ? "Supabase client not available." : "Access Denied.");
+      return;
+    }
+
+    setIsLoading(true);
+    setError(null);
+    try {
+      const { data, error: supabaseError } = await supabase
+        .from('tasks')
+        .select('*, project:projects(name), assignee:profiles(full_name)')
+        .eq('status', 'Completed')
+        .order('created_at', { ascending: false });
+
+      if (supabaseError) throw supabaseError;
+
+      const mappedTasks: Task[] = (data || []).map(task => ({
+        ...task,
+        dueDate: task.due_date,
+        createdAt: task.created_at,
+        assigneeName: task.assignee?.full_name || 'N/A',
+        assigneeId: task.assignee_id,
+        projectName: task.project?.name || 'N/A',
+        projectId: task.project_id,
+        project: undefined, 
+        assignee: undefined,
+      }));
+      setTasks(mappedTasks);
+    } catch (e: any) {
+      console.error('Error fetching pending approval tasks:', e);
+      setError(e.message || 'Failed to load tasks for approval.');
+      toast({ title: 'Error', description: e.message || 'Could not load tasks.', variant: 'destructive' });
+    } finally {
+      setIsLoading(false);
+    }
+  }, [isAdmin, toast]);
+
+  useEffect(() => {
+    fetchPendingApprovalTasks();
+  }, [fetchPendingApprovalTasks]);
 
 
-  if (!isAdmin) {
+  if (!isAdmin && !isLoading) { // Added !isLoading check
      return (
       <div className="flex items-center justify-center h-full">
           <Card className="w-full max-w-md">
               <CardHeader>
                   <CardTitle>Access Denied</CardTitle>
-                  <CardDescription>You do not have permission to view this page.</CardDescription>
+                  <CardDescription>{error || "You do not have permission to view this page."}</CardDescription>
               </CardHeader>
               <CardContent>
                   <Button onClick={() => router.push('/dashboard')}>Go to Dashboard</Button>
@@ -46,24 +84,44 @@ export default function ApprovalsPage() {
     );
   }
   
-  const handleApprove = (taskId: string) => {
-    setTasks(prevTasks => prevTasks.map(task => 
-      task.id === taskId ? { ...task, status: 'Approved' as TaskStatus } : task
-    ));
-    // Removed direct mutation of global mockTasks:
-    // const taskIndex = mockTasks.findIndex(t => t.id === taskId);
-    // if (taskIndex !== -1) mockTasks[taskIndex].status = 'Approved';
-    toast({ title: "Task Approved", description: `Task ID ${taskId} has been approved.`});
+  const handleApprove = async (taskId: string) => {
+    if (!supabase) {
+      toast({ title: "Error", description: "Supabase client not available.", variant: "destructive" });
+      return;
+    }
+    try {
+      const { error: updateError } = await supabase
+        .from('tasks')
+        .update({ status: 'Approved' })
+        .eq('id', taskId);
+
+      if (updateError) throw updateError;
+
+      toast({ title: "Task Approved", description: `Task ID ${taskId} has been approved.`});
+      fetchPendingApprovalTasks(); // Re-fetch to update the list
+    } catch (e: any) {
+      toast({ title: "Error Approving Task", description: e.message, variant: "destructive"});
+    }
   };
 
-  const handleReject = (taskId: string) => {
-     setTasks(prevTasks => prevTasks.map(task => 
-      task.id === taskId ? { ...task, status: 'In Progress' as TaskStatus } : task // Or 'Pending' / new status 'Rejected'
-    ));
-    // Removed direct mutation of global mockTasks:
-    // const taskIndex = mockTasks.findIndex(t => t.id === taskId);
-    // if (taskIndex !== -1) mockTasks[taskIndex].status = 'In Progress';
-    toast({ title: "Task Rejected", description: `Task ID ${taskId} has been sent back to 'In Progress'.`, variant: "destructive"});
+  const handleReject = async (taskId: string) => {
+    if (!supabase) {
+      toast({ title: "Error", description: "Supabase client not available.", variant: "destructive" });
+      return;
+    }
+    try {
+      const { error: updateError } = await supabase
+        .from('tasks')
+        .update({ status: 'In Progress' }) // Or 'Rejected' if you add that status
+        .eq('id', taskId);
+      
+      if (updateError) throw updateError;
+
+      toast({ title: "Task Rejected", description: `Task ID ${taskId} has been sent back to 'In Progress'.`, variant: "destructive"});
+      fetchPendingApprovalTasks(); // Re-fetch to update the list
+    } catch (e: any) {
+       toast({ title: "Error Rejecting Task", description: e.message, variant: "destructive"});
+    }
   };
 
 
@@ -77,29 +135,49 @@ export default function ApprovalsPage() {
       <Card>
         <CardHeader>
           <CardTitle>Pending Approval Queue</CardTitle>
-          <CardDescription>{pendingApprovalTasks.length > 0 ? `There are ${pendingApprovalTasks.length} tasks awaiting your approval.` : 'No tasks are currently pending approval.'}</CardDescription>
+          <CardDescription>{!isLoading && !error && tasks.length > 0 ? `There are ${tasks.length} tasks awaiting your approval.` : 'No tasks are currently pending approval.'}</CardDescription>
         </CardHeader>
         <CardContent>
-          {pendingApprovalTasks.length > 0 ? (
+          {isLoading && (
+            <div className="flex justify-center items-center py-8">
+              <Loader2 className="h-8 w-8 animate-spin text-primary" />
+              <p className="ml-2">Loading tasks for approval...</p>
+            </div>
+          )}
+          {error && !isLoading && (
+             <div className="flex flex-col items-center justify-center py-8 text-destructive">
+              <AlertTriangle className="h-8 w-8 mb-2" />
+              <p className="font-semibold">Error Loading Tasks</p>
+              <p className="text-sm">{error}</p>
+              <Button variant="outline" size="sm" className="mt-4" onClick={fetchPendingApprovalTasks} disabled={!supabase}>
+                Try Again
+              </Button>
+            </div>
+          )}
+          {!isLoading && !error && tasks.length === 0 && (
+            <p className="text-center text-muted-foreground py-8">All caught up! No tasks to approve.</p>
+          )}
+          {!isLoading && !error && tasks.length > 0 && (
             <Table>
               <TableHeader>
                 <TableRow>
                   <TableHead>Title</TableHead>
                   <TableHead>Assignee</TableHead>
                   <TableHead>Project</TableHead>
-                  <TableHead>Completed On</TableHead>
+                  <TableHead>Completed On</TableHead> {/* This might be due_date or a new 'completed_at' field */}
                   <TableHead className="text-right">Actions</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {pendingApprovalTasks.map((task) => (
+                {tasks.map((task) => (
                   <TableRow key={task.id}>
                     <TableCell className="font-medium max-w-xs truncate">
                        <Link href={`/tasks/${task.id}`} className="hover:underline text-primary">{task.title}</Link>
                     </TableCell>
                     <TableCell>{task.assigneeName || 'N/A'}</TableCell>
                     <TableCell>{task.projectName || 'N/A'}</TableCell>
-                    <TableCell>{task.dueDate ? format(new Date(task.dueDate), 'MMM d, yyyy') : 'N/A'}</TableCell> {/* Assuming dueDate is completion date for now */}
+                    {/* Assuming dueDate is a proxy for completed_at for now. You might want a dedicated completed_at field */}
+                    <TableCell>{task.dueDate ? format(new Date(task.dueDate), 'MMM d, yyyy') : 'N/A'}</TableCell>
                     <TableCell className="text-right">
                       <div className="flex justify-end gap-1">
                         <Link href={`/tasks/${task.id}`}>
@@ -107,10 +185,10 @@ export default function ApprovalsPage() {
                             <Eye className="h-4 w-4" />
                           </Button>
                         </Link>
-                        <Button variant="ghost" size="icon" className="text-green-600 hover:text-green-700" onClick={() => handleApprove(task.id)} aria-label="Approve task">
+                        <Button variant="ghost" size="icon" className="text-green-600 hover:text-green-700" onClick={() => handleApprove(task.id)} aria-label="Approve task" disabled={!supabase}>
                           <CheckCircle2 className="h-4 w-4" />
                         </Button>
-                        <Button variant="ghost" size="icon" className="text-destructive hover:text-destructive" onClick={() => handleReject(task.id)} aria-label="Reject task">
+                        <Button variant="ghost" size="icon" className="text-destructive hover:text-destructive" onClick={() => handleReject(task.id)} aria-label="Reject task" disabled={!supabase}>
                           <XCircle className="h-4 w-4" />
                         </Button>
                       </div>
@@ -119,11 +197,11 @@ export default function ApprovalsPage() {
                 ))}
               </TableBody>
             </Table>
-          ) : (
-            <p className="text-center text-muted-foreground py-8">All caught up! No tasks to approve.</p>
           )}
         </CardContent>
       </Card>
     </div>
   );
 }
+
+    
