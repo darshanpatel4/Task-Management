@@ -30,13 +30,14 @@ import { supabase } from '@/lib/supabaseClient';
 import { useEffect, useState } from 'react';
 
 const taskPriorities: TaskPriority[] = ['Low', 'Medium', 'High'];
-// User can only set these statuses initially. 'Approved' is an admin action.
 const userSettableTaskStatuses: TaskStatus[] = ['Pending', 'In Progress', 'Completed']; 
+
+const UNASSIGNED_SELECT_VALUE = "_UNASSIGNED_"; // Constant for the "Unassigned" SelectItem value
 
 const formSchema = z.object({
   title: z.string().min(3, { message: 'Title must be at least 3 characters.' }),
   description: z.string().min(10, { message: 'Description must be at least 10 characters.' }),
-  assigneeId: z.string({ required_error: 'Assignee is required.' }).nullable(), // Can be unassigned
+  assigneeId: z.string({ invalid_type_error: 'Assignee ID must be a string or null.' }).nullable(), // Can be unassigned
   dueDate: z.date({ required_error: 'Due date is required.' }),
   priority: z.enum(taskPriorities),
   projectId: z.string({ required_error: 'Project is required.' }),
@@ -63,7 +64,7 @@ export default function CreateTaskPage() {
       description: '',
       priority: 'Medium',
       status: 'Pending',
-      assigneeId: null,
+      assigneeId: null, // Default to null for unassigned
     },
   });
 
@@ -80,7 +81,7 @@ export default function CreateTaskPage() {
       setDataError(null);
       try {
         const [usersResponse, projectsResponse] = await Promise.all([
-          supabase.from('profiles').select('id, full_name'), // Fetching from profiles table
+          supabase.from('profiles').select('id, full_name'),
           supabase.from('projects').select('id, name')
         ]);
 
@@ -106,7 +107,7 @@ export default function CreateTaskPage() {
   }, [isAdmin, toast]);
 
 
-  if (!isAdmin && !isLoadingData && dataError) { // Check if dataError is set (includes admin check)
+  if (!isAdmin && !isLoadingData && dataError) {
     return (
         <div className="flex items-center justify-center h-full">
             <Card className="w-full max-w-md">
@@ -154,20 +155,19 @@ export default function CreateTaskPage() {
       const taskToInsert = {
         title: values.title,
         description: values.description,
-        assignee_id: values.assigneeId,
+        assignee_id: values.assigneeId, // This will be null if "Unassigned" was chosen
         due_date: values.dueDate.toISOString(),
         priority: values.priority,
         project_id: values.projectId,
         status: values.status,
-        user_id: currentUser.id, // Creator of the task
-        // assigneeName and projectName are not directly inserted; they are derived via joins/relations
+        user_id: currentUser.id, 
       };
 
       const { data, error } = await supabase
         .from('tasks')
         .insert([taskToInsert])
         .select()
-        .single(); // Assuming you want the created task back
+        .single(); 
 
       if (error) throw error;
 
@@ -175,7 +175,7 @@ export default function CreateTaskPage() {
         title: 'Task Created',
         description: `Task "${values.title}" has been successfully created.`,
       });
-      router.push('/tasks'); // Or `/tasks/${data.id}` if you want to go to the new task's detail page
+      router.push('/tasks'); 
     } catch (error: any) {
       console.error('Error creating task:', error);
       toast({
@@ -240,10 +240,19 @@ export default function CreateTaskPage() {
                   render={({ field }) => (
                     <FormItem>
                       <FormLabel>Assignee (Optional)</FormLabel>
-                      <Select onValueChange={field.onChange} value={field.value || ""}>
+                      <Select 
+                        onValueChange={(value) => {
+                          if (value === UNASSIGNED_SELECT_VALUE) {
+                            field.onChange(null);
+                          } else {
+                            field.onChange(value);
+                          }
+                        }} 
+                        value={field.value === null ? UNASSIGNED_SELECT_VALUE : field.value}
+                      >
                         <FormControl><SelectTrigger><SelectValue placeholder="Select an assignee" /></SelectTrigger></FormControl>
                         <SelectContent>
-                          <SelectItem value="">Unassigned</SelectItem>
+                          <SelectItem value={UNASSIGNED_SELECT_VALUE}>Unassigned</SelectItem>
                           {users.map((user) => (
                             <SelectItem key={user.id} value={user.id}>{user.name}</SelectItem>
                           ))}
