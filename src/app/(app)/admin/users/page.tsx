@@ -39,34 +39,17 @@ export default function UserManagementPage() {
     setError(null);
     try {
       // Fetch users from the 'profiles' table.
-      // Supabase auth users are in auth.users, but roles and full_name are in profiles.
+      // Assumes 'profiles' table now has an 'email' column populated by the trigger.
       const { data, error: supabaseError } = await supabase
         .from('profiles')
-        .select('id, full_name, email:user_email, role, avatar_url'); // Assuming email is stored in profiles or you join with auth.users
+        .select('id, full_name, email, role, avatar_url'); // Changed to select 'email'
 
       if (supabaseError) throw supabaseError;
-      
-      // Map fetched data to the User type.
-      // Note: Supabase profiles might not directly have an 'email' field.
-      // The `AuthContext` maps `auth.users.email` to `User.email`.
-      // Here, we'll try to get email from profile if available, otherwise use a placeholder.
-      // For a complete solution, you might need to join 'profiles' with 'auth.users' server-side
-      // or make another call to get emails if they are not in 'profiles'.
-      // For simplicity, we'll use the structure as if email were directly on profiles.
-      // Or, even better, just use the fields we have in `profiles`: id, full_name, role, avatar_url.
-      // The `User` type expects `name` and `email`. We'll adapt.
       
       const mappedUsers: User[] = (data || []).map(profile => ({
         id: profile.id,
         name: profile.full_name || 'N/A',
-        // Email is typically sensitive and might not be in 'profiles' table by default
-        // or might be fetched separately. For this UI, we'll show what 'profiles' gives us.
-        // If your `profiles` table has an email, use `profile.email_column_name`.
-        // The AuthContext handles the primary email from `auth.users`.
-        // We'll rely on the fact that the `User` type has email as mandatory.
-        // This part might need adjustment based on your exact `profiles` table schema.
-        // Let's assume for now that an email field might be available or we'll show N/A.
-        email: profile.user_email || 'Email not in profile table', // Example, adjust if you store email in profiles
+        email: profile.email || 'N/A (Email missing in profile)', // Use the 'email' field from profiles
         role: profile.role as User['role'] || 'User',
         avatar: profile.avatar_url || undefined,
       }));
@@ -108,8 +91,6 @@ export default function UserManagementPage() {
   }
 
   const handleEditUser = (userId: string) => {
-    // Placeholder for navigating to an edit user page
-    // router.push(`/admin/users/edit/${userId}`);
     toast({
       title: "Edit User",
       description: `Functionality to edit user ${userId} will be implemented here.`,
@@ -135,20 +116,16 @@ export default function UserManagementPage() {
     }
 
     if (confirm(`Are you sure you want to delete user "${userName}"? This action is permanent and will remove the user from authentication and their profile. This action is currently mocked.`)) {
-      // Actual Deletion Logic (requires Supabase Admin privileges, typically via a Server Action)
-      // For now, we'll just log and remove from local state if you want to simulate.
       console.warn(`Mock delete user: ${userId} (${userName}). Actual Supabase admin deletion needed.`);
       toast({
         title: "Mock User Deletion",
         description: `User ${userName} delete process initiated (mocked). For actual deletion, a Supabase Admin action is required.`,
       });
-      // Example of removing from local state for UI update (if not re-fetching)
-      // setUsers(prevUsers => prevUsers.filter(u => u.id !== userId));
     }
   };
   
   const handleCreateUser = () => {
-    router.push('/admin/users/create'); // Navigate to the new create user page
+    router.push('/admin/users/create'); 
   };
 
   return (
@@ -158,9 +135,7 @@ export default function UserManagementPage() {
           <h1 className="text-3xl font-bold tracking-tight">User Management</h1>
           <p className="text-muted-foreground">Manage all user profiles in the system.</p>
         </div>
-        <Button onClick={handleCreateUser} disabled={!supabase || isLoading}>
-          <PlusCircle className="mr-2 h-4 w-4" /> Create User
-        </Button>
+        {/* The button to create user is now in the sidebar as "Create New User" */}
       </div>
 
       <Card>
@@ -192,7 +167,7 @@ export default function UserManagementPage() {
                 <TableRow>
                   <TableHead>Avatar</TableHead>
                   <TableHead>Name</TableHead>
-                  <TableHead>Email (from profile, if exists)</TableHead>
+                  <TableHead>Email</TableHead>
                   <TableHead>Role</TableHead>
                   <TableHead className="text-right">Actions</TableHead>
                 </TableRow>
