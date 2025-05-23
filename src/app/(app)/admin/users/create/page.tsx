@@ -25,10 +25,10 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { useAuth } from '@/context/AuthContext';
 import { useRouter } from 'next/navigation';
 import { useToast } from '@/hooks/use-toast';
-import { supabase } from '@/lib/supabaseClient'; // We'll use this for admin actions
 import { Loader2, UserPlus, AlertTriangle, Briefcase, Lock, Mail, User } from 'lucide-react';
 import { useState } from 'react';
 import type { UserRole } from '@/types';
+import { adminCreateUser } from '@/actions/adminUserActions'; // Import the Server Action
 
 const userCreateFormSchema = z.object({
   fullName: z.string().min(2, { message: 'Full name must be at least 2 characters.' }),
@@ -56,7 +56,6 @@ export default function AdminCreateUserPage() {
   });
 
   if (!isAdmin) {
-    // Should be caught by layout, but good to have a fallback.
     return (
       <div className="flex items-center justify-center h-full">
         <Card className="w-full max-w-md">
@@ -72,62 +71,28 @@ export default function AdminCreateUserPage() {
     );
   }
 
-  if (!supabase) {
-    return (
-      <div className="flex flex-col items-center justify-center h-full text-destructive">
-        <AlertTriangle className="h-12 w-12 mb-4" />
-        <h2 className="text-xl font-semibold mb-2">Supabase Client Not Available</h2>
-        <p className="text-center mb-4">
-          The Supabase client is not configured. Please check your environment variables and Supabase setup.
-        </p>
-        <Button onClick={() => router.push('/admin/users')} variant="outline">
-          Back to User Management
-        </Button>
-      </div>
-    );
-  }
-
   async function onSubmit(values: UserCreateFormValues) {
     setIsSubmitting(true);
-    toast({
-      title: 'User Creation In Progress (Mock)',
-      description: "Actual user creation with Supabase Admin API (via Server Action) needs to be implemented.",
-    });
-    console.log("Form submitted for user creation (mock):", values);
-
-    // TODO: Implement actual user creation using a Server Action with Supabase Admin Client.
-    // This would involve:
-    // 1. Creating a Server Action.
-    // 2. In the Server Action, initializing a Supabase client with the service_role key.
-    // 3. Calling `supabase.auth.admin.createUser({ email, password, user_metadata: { full_name, role } })`.
-    // 4. The existing `handle_new_user` trigger in your DB should then populate the `profiles` table.
-    //    If the trigger also handles `full_name` and `role` from `user_metadata`, you might not need to pass it separately
-    //    to the `profiles` table insertion if the trigger is robust.
-
     try {
-      // --- Placeholder for Server Action call ---
-      // const result = await callCreateUserServerAction(values);
-      // if (result.error) throw new Error(result.error.message);
-      // toast({
-      //   title: 'User Created Successfully',
-      //   description: `User ${values.fullName} has been created.`,
-      // });
-      // router.push('/admin/users');
-      // --- End Placeholder ---
+      const result = await adminCreateUser(values);
 
-      // For now, simulate success and redirect after a delay
-      await new Promise(resolve => setTimeout(resolve, 1500));
-       toast({
-        title: 'Mock User Creation Successful',
-        description: `User ${values.fullName} would have been created.`,
-      });
-      router.push('/admin/users');
-
-
+      if (result.success) {
+        toast({
+          title: 'User Created Successfully',
+          description: result.message,
+        });
+        router.push('/admin/users'); // Redirect to user list
+      } else {
+        toast({
+          title: 'Error Creating User',
+          description: result.message,
+          variant: 'destructive',
+        });
+      }
     } catch (error: any) {
-      console.error('Error creating user (mock):', error);
+      console.error('Error submitting create user form:', error);
       toast({
-        title: 'Error Creating User (Mock)',
+        title: 'Submission Error',
         description: error.message || 'An unexpected error occurred. Please try again.',
         variant: 'destructive',
       });
@@ -145,7 +110,7 @@ export default function AdminCreateUserPage() {
         </CardTitle>
         <CardDescription>
           Fill in the details below to create a new user account and profile.
-          The new user will be created in Supabase authentication and their profile will be added.
+          The new user will be created in Supabase authentication and their profile will be added via a trigger.
         </CardDescription>
       </CardHeader>
       <CardContent>
