@@ -68,7 +68,7 @@ export default function ApprovalsPage() {
   }, [fetchPendingApprovalTasks]);
 
 
-  if (!isAdmin && !isLoading) { // Added !isLoading check
+  if (!isAdmin && !isLoading) { 
      return (
       <div className="flex items-center justify-center h-full">
           <Card className="w-full max-w-md">
@@ -98,7 +98,7 @@ export default function ApprovalsPage() {
       if (updateError) throw updateError;
 
       toast({ title: "Task Approved", description: `Task ID ${taskId} has been approved.`});
-      fetchPendingApprovalTasks(); // Re-fetch to update the list
+      fetchPendingApprovalTasks(); 
     } catch (e: any) {
       toast({ title: "Error Approving Task", description: e.message, variant: "destructive"});
     }
@@ -112,13 +112,13 @@ export default function ApprovalsPage() {
     try {
       const { error: updateError } = await supabase
         .from('tasks')
-        .update({ status: 'In Progress' }) // Or 'Rejected' if you add that status
+        .update({ status: 'In Progress' }) 
         .eq('id', taskId);
       
       if (updateError) throw updateError;
 
       toast({ title: "Task Rejected", description: `Task ID ${taskId} has been sent back to 'In Progress'.`, variant: "destructive"});
-      fetchPendingApprovalTasks(); // Re-fetch to update the list
+      fetchPendingApprovalTasks(); 
     } catch (e: any) {
        toast({ title: "Error Rejecting Task", description: e.message, variant: "destructive"});
     }
@@ -164,7 +164,7 @@ export default function ApprovalsPage() {
                   <TableHead>Title</TableHead>
                   <TableHead>Assignee</TableHead>
                   <TableHead>Project</TableHead>
-                  <TableHead>Completed On</TableHead> {/* This might be due_date or a new 'completed_at' field */}
+                  <TableHead>Completed On</TableHead>
                   <TableHead className="text-right">Actions</TableHead>
                 </TableRow>
               </TableHeader>
@@ -176,7 +176,6 @@ export default function ApprovalsPage() {
                     </TableCell>
                     <TableCell>{task.assigneeName || 'N/A'}</TableCell>
                     <TableCell>{task.projectName || 'N/A'}</TableCell>
-                    {/* Assuming dueDate is a proxy for completed_at for now. You might want a dedicated completed_at field */}
                     <TableCell>{task.dueDate ? format(new Date(task.dueDate), 'MMM d, yyyy') : 'N/A'}</TableCell>
                     <TableCell className="text-right">
                       <div className="flex justify-end gap-1">
@@ -203,5 +202,3 @@ export default function ApprovalsPage() {
     </div>
   );
 }
-
-    
