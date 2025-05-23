@@ -1,51 +1,113 @@
+
 'use client';
 
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect, useCallback } from 'react';
 import Link from 'next/link';
 import { useAuth } from '@/context/AuthContext';
-import { mockTasks, mockUsers, mockProjects } from '@/lib/mock-data';
-import type { Task, TaskStatus, TaskPriority } from '@/types';
+import type { Task, TaskStatus, TaskPriority, Project } from '@/types';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Badge } from '@/components/ui/badge';
-import { PlusCircle, Search, Edit3, Trash2, Eye } from 'lucide-react';
+import { PlusCircle, Search, Edit3, Trash2, Eye, Loader2, AlertTriangle } from 'lucide-react';
 import { format } from 'date-fns';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { supabase } from '@/lib/supabaseClient';
+import { useToast } from '@/hooks/use-toast';
 
 const statusOptions: TaskStatus[] = ['Pending', 'In Progress', 'Completed', 'Approved'];
 const priorityOptions: TaskPriority[] = ['Low', 'Medium', 'High'];
 
 export default function TasksPage() {
   const { currentUser, isAdmin } = useAuth();
+  const { toast } = useToast();
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState<TaskStatus | 'all'>('all');
   const [priorityFilter, setPriorityFilter] = useState<TaskPriority | 'all'>('all');
   const [projectFilter, setProjectFilter] = useState<string | 'all'>('all');
 
-  const tasksToShow = useMemo(() => {
-    let tasks = isAdmin ? mockTasks : mockTasks.filter(task => task.assigneeId === currentUser?.id);
+  const [tasks, setTasks] = useState<Task[]>([]);
+  const [projectsForFilter, setProjectsForFilter] = useState<Pick<Project, 'id' | 'name'>[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
-    if (searchTerm) {
-      tasks = tasks.filter(task =>
-        task.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        task.description.toLowerCase().includes(searchTerm.toLowerCase())
-      );
+  const fetchTasksAndProjects = useCallback(async () => {
+    if (!currentUser || !supabase) {
+      setIsLoading(false);
+      setError(currentUser ? "Supabase client not available." : "User not authenticated.");
+      return;
     }
-    if (statusFilter !== 'all') {
-      tasks = tasks.filter(task => task.status === statusFilter);
-    }
-    if (priorityFilter !== 'all') {
-      tasks = tasks.filter(task => task.priority === priorityFilter);
-    }
-    if (projectFilter !== 'all') {
-      tasks = tasks.filter(task => task.projectId === projectFilter);
-    }
-    return tasks.sort((a,b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
-  }, [isAdmin, currentUser?.id, searchTerm, statusFilter, priorityFilter, projectFilter]);
 
-  const getStatusVariant = (status: Task['status']): "default" | "secondary" | "destructive" | "outline" => {
+    setIsLoading(true);
+    setError(null);
+
+    try {
+      // Fetch projects for the filter dropdown (only if admin, or adjust as needed)
+      if (isAdmin) { // Or if non-admins also need to filter by project for some reason
+        const { data: projectData, error: projectError } = await supabase
+          .from('projects')
+          .select('id, name')
+          .order('name', { ascending: true });
+        if (projectError) throw projectError;
+        setProjectsForFilter(projectData || []);
+      }
+
+      // Build tasks query
+      let query = supabase
+        .from('tasks')
+        .select('*, project:projects(name), assignee:profiles(full_name)') // Fetch related data
+        .order('created_at', { ascending: false });
+
+      if (!isAdmin) {
+        query = query.eq('assignee_id', currentUser.id);
+      }
+      if (statusFilter !== 'all') {
+        query = query.eq('status', statusFilter);
+      }
+      if (priorityFilter !== 'all') {
+        query = query.eq('priority', priorityFilter);
+      }
+      if (projectFilter !== 'all' && isAdmin) { // Project filter usually for admins
+        query = query.eq('project_id', projectFilter);
+      }
+      if (searchTerm) {
+        query = query.or(`title.ilike.%${searchTerm}%,description.ilike.%${searchTerm}%`);
+      }
+
+      const { data: tasksData, error: tasksError } = await query;
+
+      if (tasksError) throw tasksError;
+
+      const mappedTasks: Task[] = tasksData?.map(task => ({
+        ...task,
+        dueDate: task.due_date,
+        createdAt: task.created_at,
+        assigneeName: task.assignee?.full_name || (task.assignee_id ? 'N/A' : 'Unassigned'),
+        assigneeId: task.assignee_id,
+        projectName: task.project?.name || 'N/A',
+        projectId: task.project_id,
+        project: undefined, 
+        assignee: undefined,
+      })) || [];
+      setTasks(mappedTasks);
+
+    } catch (e: any) {
+      console.error('Error fetching tasks or projects:', e);
+      setError(e.message || 'Failed to load data.');
+      toast({ title: 'Error', description: e.message || 'Could not load data.', variant: 'destructive' });
+    } finally {
+      setIsLoading(false);
+    }
+  }, [currentUser, isAdmin, searchTerm, statusFilter, priorityFilter, projectFilter, toast]);
+
+  useEffect(() => {
+    fetchTasksAndProjects();
+  }, [fetchTasksAndProjects]);
+
+
+  const getStatusVariant = (status?: Task['status']): "default" | "secondary" | "destructive" | "outline" => {
+    // ... (same as before)
     switch (status) {
       case 'Pending': return 'secondary';
       case 'In Progress': return 'default';
@@ -55,8 +117,9 @@ export default function TasksPage() {
     }
   };
   
-  const getPriorityVariant = (priority: Task['priority']): "default" | "secondary" | "destructive" | "outline" => {
-    switch (priority) {
+  const getPriorityVariant = (priority?: Task['priority']): "default" | "secondary" | "destructive" | "outline" => {
+    // ... (same as before)
+     switch (priority) {
       case 'High': return 'destructive';
       case 'Medium': return 'default'; 
       case 'Low': return 'secondary';
@@ -64,7 +127,31 @@ export default function TasksPage() {
     }
   };
 
-  if (!currentUser) return <p>Loading...</p>;
+  // Placeholder for delete, to be implemented with Supabase
+  const handleDeleteTask = async (taskId: string) => {
+    if (!supabase) {
+        toast({ title: "Supabase Not Configured", description: `Cannot delete task ${taskId}.`, variant: "destructive" });
+        return;
+    }
+    if (confirm(`Are you sure you want to delete task ${taskId}? This action cannot be undone.`)) {
+        try {
+            setIsLoading(true); // Or a specific deleting state
+            const { error: deleteError } = await supabase.from('tasks').delete().match({ id: taskId });
+            if (deleteError) throw deleteError;
+            toast({ title: "Task Deleted", description: `Task ${taskId} has been deleted.` });
+            fetchTasksAndProjects(); // Refresh the list
+        } catch (e: any) {
+            toast({ title: "Error Deleting Task", description: e.message || "Could not delete task.", variant: "destructive" });
+        } finally {
+            setIsLoading(false);
+        }
+    }
+  };
+
+
+  if (!currentUser && !isLoading) { // Should be caught by layout
+      return <p>Redirecting to login...</p>;
+  }
 
   return (
     <div className="space-y-6">
@@ -77,7 +164,7 @@ export default function TasksPage() {
         </div>
         {isAdmin && (
           <Link href="/tasks/create">
-            <Button className="mt-4 sm:mt-0">
+            <Button className="mt-4 sm:mt-0" disabled={isLoading || !supabase}>
               <PlusCircle className="mr-2 h-4 w-4" /> Create Task
             </Button>
           </Link>
@@ -96,16 +183,17 @@ export default function TasksPage() {
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
                 className="pl-8 w-full"
+                disabled={isLoading}
               />
             </div>
-            <Select value={statusFilter} onValueChange={(value) => setStatusFilter(value as TaskStatus | 'all')}>
+            <Select value={statusFilter} onValueChange={(value) => setStatusFilter(value as TaskStatus | 'all')} disabled={isLoading}>
               <SelectTrigger><SelectValue placeholder="Filter by status" /></SelectTrigger>
               <SelectContent>
                 <SelectItem value="all">All Statuses</SelectItem>
                 {statusOptions.map(status => <SelectItem key={status} value={status}>{status}</SelectItem>)}
               </SelectContent>
             </Select>
-            <Select value={priorityFilter} onValueChange={(value) => setPriorityFilter(value as TaskPriority | 'all')}>
+            <Select value={priorityFilter} onValueChange={(value) => setPriorityFilter(value as TaskPriority | 'all')} disabled={isLoading}>
               <SelectTrigger><SelectValue placeholder="Filter by priority" /></SelectTrigger>
               <SelectContent>
                 <SelectItem value="all">All Priorities</SelectItem>
@@ -113,18 +201,37 @@ export default function TasksPage() {
               </SelectContent>
             </Select>
             {isAdmin && (
-              <Select value={projectFilter} onValueChange={(value) => setProjectFilter(value as string | 'all')}>
+              <Select value={projectFilter} onValueChange={(value) => setProjectFilter(value as string | 'all')} disabled={isLoading || projectsForFilter.length === 0}>
                 <SelectTrigger><SelectValue placeholder="Filter by project" /></SelectTrigger>
                 <SelectContent>
                   <SelectItem value="all">All Projects</SelectItem>
-                  {mockProjects.map(project => <SelectItem key={project.id} value={project.id}>{project.name}</SelectItem>)}
+                  {projectsForFilter.map(project => <SelectItem key={project.id} value={project.id}>{project.name}</SelectItem>)}
                 </SelectContent>
               </Select>
             )}
           </div>
         </CardHeader>
         <CardContent>
-          {tasksToShow.length > 0 ? (
+          {isLoading && (
+            <div className="flex justify-center items-center py-12">
+              <Loader2 className="h-8 w-8 animate-spin text-primary" />
+              <p className="ml-3 text-muted-foreground">Loading tasks...</p>
+            </div>
+          )}
+          {error && !isLoading && (
+            <div className="flex flex-col items-center justify-center py-12 text-destructive">
+              <AlertTriangle className="h-8 w-8 mb-2" />
+              <p className="font-semibold">Error Loading Tasks</p>
+              <p className="text-sm">{error}</p>
+              <Button variant="outline" size="sm" className="mt-4" onClick={fetchTasksAndProjects} disabled={!supabase}>
+                Try Again
+              </Button>
+            </div>
+          )}
+          {!isLoading && !error && tasks.length === 0 && (
+            <p className="text-center text-muted-foreground py-12">No tasks match your criteria.</p>
+          )}
+          {!isLoading && !error && tasks.length > 0 && (
             <Table>
               <TableHeader>
                 <TableRow>
@@ -138,14 +245,14 @@ export default function TasksPage() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {tasksToShow.map((task) => (
+                {tasks.map((task) => (
                   <TableRow key={task.id}>
                     <TableCell className="font-medium max-w-xs truncate">
                       <Link href={`/tasks/${task.id}`} className="hover:underline text-primary">{task.title}</Link>
                     </TableCell>
-                    {isAdmin && <TableCell>{task.assigneeName || 'N/A'}</TableCell>}
+                    {isAdmin && <TableCell>{task.assigneeName || 'Unassigned'}</TableCell>}
                     <TableCell>{task.projectName || 'N/A'}</TableCell>
-                    <TableCell>{format(new Date(task.dueDate), 'MMM d, yyyy')}</TableCell>
+                    <TableCell>{task.dueDate ? format(new Date(task.dueDate), 'MMM d, yyyy') : 'N/A'}</TableCell>
                     <TableCell><Badge variant={getPriorityVariant(task.priority)} className="capitalize">{task.priority}</Badge></TableCell>
                     <TableCell><Badge variant={getStatusVariant(task.status)} className="capitalize">{task.status}</Badge></TableCell>
                     <TableCell className="text-right">
@@ -157,12 +264,20 @@ export default function TasksPage() {
                         </Link>
                         {isAdmin && (
                           <>
-                            <Link href={`/tasks/edit/${task.id}`}> {/* Placeholder for edit page */}
-                              <Button variant="ghost" size="icon" aria-label="Edit task">
+                            {/* Edit task functionality would navigate to a pre-filled form, e.g., /tasks/edit/[id] */}
+                            <Link href={`/tasks/edit/${task.id}`}> 
+                              <Button variant="ghost" size="icon" aria-label="Edit task" disabled={!supabase || isLoading}>
                                 <Edit3 className="h-4 w-4" />
                               </Button>
                             </Link>
-                            <Button variant="ghost" size="icon" className="text-destructive hover:text-destructive" aria-label="Delete task" onClick={() => alert(`Delete task ${task.id}? (mock)`)}>
+                            <Button 
+                              variant="ghost" 
+                              size="icon" 
+                              className="text-destructive hover:text-destructive" 
+                              aria-label="Delete task" 
+                              onClick={() => handleDeleteTask(task.id)}
+                              disabled={!supabase || isLoading}
+                            >
                               <Trash2 className="h-4 w-4" />
                             </Button>
                           </>
@@ -173,8 +288,6 @@ export default function TasksPage() {
                 ))}
               </TableBody>
             </Table>
-          ) : (
-            <p className="text-center text-muted-foreground py-8">No tasks match your criteria.</p>
           )}
         </CardContent>
       </Card>
