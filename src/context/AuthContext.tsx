@@ -39,122 +39,161 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   const pathname = usePathname();
 
   const setCurrentUser = useCallback((user: User | null) => {
+    console.log("AuthContext: setCurrentUser called with:", user);
     setCurrentUserState(user);
-    // localStorage for currentUser is now managed implicitly by Supabase session persistence
   }, []);
 
   useEffect(() => {
+    console.log("AuthContext: Initial effect running. Supabase client available?", !!supabase);
     if (!supabase) {
-      // Supabase client not initialized, fall back to mock data for initial load
-      console.log("AuthContext: Supabase not initialized, attempting mock user load.");
+      console.warn("AuthContext: Supabase client not initialized. Attempting mock user load.");
+      setLoading(true); // Start loading
       try {
         const storedUser = localStorage.getItem('currentUser');
         if (storedUser) {
           const parsedUser: User = JSON.parse(storedUser);
+          console.log("AuthContext: Loaded mock user from localStorage:", parsedUser);
           setCurrentUserState(parsedUser);
+        } else {
+          console.log("AuthContext: No mock user in localStorage.");
+          setCurrentUserState(null);
         }
       } catch (error) {
-        console.error("Error parsing stored mock user:", error);
+        console.error("AuthContext: Error parsing stored mock user:", error);
         localStorage.removeItem('currentUser');
+        setCurrentUserState(null);
       }
-      setLoading(false);
+      setLoading(false); // Finish loading
       return;
     }
 
+    console.log("AuthContext: Supabase client is available. Setting up auth listener and getSession.");
     setLoading(true);
     supabase.auth.getSession().then(async ({ data: { session: currentSession } }) => {
+      console.log("AuthContext: getSession() returned, session:", currentSession);
       setSession(currentSession);
       if (currentSession?.user) {
-        // Fetch user profile from your 'profiles' table
-        const { data: profile, error }_ = await supabase
-          .from('profiles') // Ensure you have a 'profiles' table
+        console.log("AuthContext: User found in session. Fetching profile for user ID:", currentSession.user.id);
+        const { data: profile, error: profileError } = await supabase
+          .from('profiles')
           .select('*')
           .eq('id', currentSession.user.id)
           .single();
         
-        if (profile) {
-          setCurrentUserState(mapSupabaseUserToAppUser(currentSession.user, profile));
-        } else if (_) {
-            console.error('Error fetching profile for Supabase user:', _);
+        if (profileError) {
+            console.error('AuthContext: Error fetching profile for Supabase user:', profileError);
             // Potentially sign out user or handle as anonymous/incomplete profile
-            setCurrentUserState(mapSupabaseUserToAppUser(currentSession.user, {})); // Fallback minimal user
+            setCurrentUserState(mapSupabaseUserToAppUser(currentSession.user, { full_name: 'Error User', role: 'User' })); // Fallback minimal user on error
+        } else if (profile) {
+          console.log("AuthContext: Profile fetched successfully:", profile);
+          setCurrentUserState(mapSupabaseUserToAppUser(currentSession.user, profile));
         } else {
-            // No profile found, but user is authenticated.
-            // This might be a new user post-signup before profile creation, or an issue.
-            console.warn(`No profile found for user ${currentSession.user.id}. Creating a default one.`);
-            // For now, create a default local user object
-            setCurrentUserState(mapSupabaseUserToAppUser(currentSession.user, { role: 'User', full_name: currentSession.user.email?.split('@')[0] }));
+            console.warn(`AuthContext: No profile found for user ${currentSession.user.id}. Using default user object.`);
+            setCurrentUserState(mapSupabaseUserToAppUser(currentSession.user, { role: 'User', full_name: currentSession.user.email?.split('@')[0] || 'Guest' }));
         }
-
       } else {
+        console.log("AuthContext: No active Supabase session found.");
         setCurrentUserState(null);
       }
       setLoading(false);
+    }).catch(error => {
+        console.error("AuthContext: Error in getSession():", error);
+        setCurrentUserState(null);
+        setLoading(false);
     });
 
     const { data: authListener } = supabase.auth.onAuthStateChange(
       async (event: AuthChangeEvent, newSession: Session | null) => {
+        console.log("AuthContext: onAuthStateChange event:", event, "session:", newSession);
         setSession(newSession);
+        setLoading(true); // Set loading true while processing auth change
+
         if (event === 'SIGNED_IN' && newSession?.user) {
-          setLoading(true);
-          // Fetch user profile from your 'profiles' table
-          const { data: profile, error }_ = await supabase
+          console.log("AuthContext: SIGNED_IN. Fetching profile for user ID:", newSession.user.id);
+          const { data: profile, error: profileError } = await supabase
             .from('profiles')
             .select('*')
             .eq('id', newSession.user.id)
             .single();
           
-          if (profile) {
-            setCurrentUserState(mapSupabaseUserToAppUser(newSession.user, profile));
-          } else if (_) {
-            console.error('Error fetching profile on SIGNED_IN:', _);
-            setCurrentUserState(mapSupabaseUserToAppUser(newSession.user, {})); // Fallback
+          if (profileError) {
+            console.error('AuthContext: Error fetching profile on SIGNED_IN:', profileError);
+            setCurrentUserState(mapSupabaseUserToAppUser(newSession.user, { full_name: 'Error User', role: 'User' })); // Fallback
+          } else if (profile) {
+             console.log("AuthContext: Profile fetched successfully on SIGNED_IN:", profile);
+             setCurrentUserState(mapSupabaseUserToAppUser(newSession.user, profile));
           } else {
-             console.warn(`No profile found for user ${newSession.user.id} on SIGNED_IN. Creating a default one.`);
-             setCurrentUserState(mapSupabaseUserToAppUser(newSession.user, { role: 'User', full_name: newSession.user.email?.split('@')[0] }));
+             console.warn(`AuthContext: No profile found for user ${newSession.user.id} on SIGNED_IN. Using default.`);
+             setCurrentUserState(mapSupabaseUserToAppUser(newSession.user, { role: 'User', full_name: newSession.user.email?.split('@')[0] || 'Guest' }));
           }
-          setLoading(false);
         } else if (event === 'SIGNED_OUT') {
+          console.log("AuthContext: SIGNED_OUT.");
           setCurrentUserState(null);
         } else if (event === 'USER_UPDATED' && newSession?.user) {
-            // Handle user updates if profile might change
-            const { data: profile } = await supabase
+            console.log("AuthContext: USER_UPDATED. Fetching profile for user ID:", newSession.user.id);
+            const { data: profile, error: profileError } = await supabase
             .from('profiles')
             .select('*')
             .eq('id', newSession.user.id)
             .single();
-            if (profile) {
+            if (profileError) {
+                console.error('AuthContext: Error fetching profile on USER_UPDATED:', profileError);
+                // Potentially keep existing user data or map with defaults
+                if(currentUser?.id === newSession.user.id) { // only update if it's the same user being updated
+                    setCurrentUserState(mapSupabaseUserToAppUser(newSession.user, currentUser)); // try to preserve some old details
+                } else {
+                    setCurrentUserState(mapSupabaseUserToAppUser(newSession.user, { full_name: 'Updated User', role: 'User' }));
+                }
+            } else if (profile) {
+                 console.log("AuthContext: Profile fetched successfully on USER_UPDATED:", profile);
                  setCurrentUserState(mapSupabaseUserToAppUser(newSession.user, profile));
+            } else {
+                // User exists, but profile not found.
+                 console.warn(`AuthContext: No profile found for user ${newSession.user.id} on USER_UPDATED. Using default.`);
+                 setCurrentUserState(mapSupabaseUserToAppUser(newSession.user, { role: 'User', full_name: newSession.user.email?.split('@')[0] || 'Guest' }));
+            }
+        } else if (event === 'INITIAL_SESSION') {
+            // This event often fires along with getSession, handled above.
+            // If no user in newSession, it means no active session.
+            if (!newSession?.user) {
+                console.log("AuthContext: INITIAL_SESSION with no user.");
+                setCurrentUserState(null);
             }
         }
+        setLoading(false); // Finish loading after handling the auth event
       }
     );
 
     return () => {
+      console.log("AuthContext: Unsubscribing auth listener.");
       authListener?.subscription.unsubscribe();
     };
-  }, [router]); // Add router to dependencies if it's used in profile fetching logic for redirects
+  }, [router, setCurrentUser]); // Added setCurrentUser to dependency array
 
   useEffect(() => {
+    console.log("AuthContext: Current state - loading:", loading, "currentUser:", !!currentUser, "pathname:", pathname);
     if (!loading && !currentUser && !pathname.startsWith('/auth')) {
+      console.log("AuthContext: Not loading, no current user, and not on auth page. Redirecting to /auth/login.");
       router.push('/auth/login');
     }
   }, [currentUser, loading, pathname, router]);
 
   const logout = async () => {
+    console.log("AuthContext: logout called.");
     if (supabase) {
       const { error } = await supabase.auth.signOut();
-      if (error) console.error('Error logging out:', error);
+      if (error) console.error('AuthContext: Error logging out with Supabase:', error);
+      else console.log("AuthContext: Supabase signOut successful.");
     }
     setCurrentUserState(null); // Ensure local state is cleared
     setSession(null);
     localStorage.removeItem('currentUser'); // Clear mock user if it was set
+    console.log("AuthContext: Redirecting to /auth/login after logout.");
     router.push('/auth/login');
   };
   
-  // Mock login for fallback if Supabase is not configured
   const mockLogin = (email: string, name?: string): User | null => {
-    console.log("Using mock login for:", email);
+    console.warn("AuthContext: Using MOCK LOGIN for:", email);
     let user = findUserByEmailMock(email);
     if (!user && name) { 
       const newUser: User = {
@@ -169,18 +208,20 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
                               : (mockUsers.find(u => u.role === 'User' && u.email.toLowerCase().includes('user')) || mockUsers[1] || mockUsers[0]);
     }
     if (user) {
-      setCurrentUser(user); // Uses the useCallback version
-      localStorage.setItem('currentUser', JSON.stringify(user)); // Persist mock user
+      setCurrentUser(user); 
+      localStorage.setItem('currentUser', JSON.stringify(user));
+      console.log("AuthContext: Mock login successful for:", user);
       return user;
     }
+    console.log("AuthContext: Mock login failed for:", email);
     return null;
   };
   
-  // Expose mockLogin for forms to use as fallback
   (AuthContext as any).mockLogin = mockLogin; 
 
 
   const isAdmin = currentUser?.role === 'Admin';
+  console.log("AuthContext: isAdmin determined as:", isAdmin, "currentUser role:", currentUser?.role);
 
   return (
     <AuthContext.Provider value={{ currentUser, setCurrentUser, logout, isAdmin, loading, session }}>
@@ -194,6 +235,6 @@ export const useAuth = () => {
   if (context === undefined) {
     throw new Error('useAuth must be used within an AuthProvider');
   }
-  // Expose mockLogin through useAuth if needed, or forms can access it via context directly if made public
   return { ...context, mockLogin: (AuthContext as any).mockLogin };
 };
+
