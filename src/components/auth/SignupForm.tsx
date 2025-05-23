@@ -56,10 +56,18 @@ export function SignupForm() {
   async function onSubmit(values: z.infer<typeof formSchema>) {
     setIsLoading(true);
     if (supabase) {
-      // Attempt Supabase signup
+      // Attempt Supabase signup, passing name and role in options.data
+      // This data will be available in NEW.raw_user_meta_data in your trigger
       const { data: signUpData, error: signUpError } = await supabase.auth.signUp({
         email: values.email,
         password: values.password,
+        options: {
+          data: {
+            full_name: values.name, // Will be NEW.raw_user_meta_data->>'full_name'
+            role: values.role,       // Will be NEW.raw_user_meta_data->>'role'
+            // avatar_url could also be passed here if you collect it
+          }
+        }
       });
 
       if (signUpError) {
@@ -72,40 +80,30 @@ export function SignupForm() {
         return;
       }
 
+      // The on_auth_user_created trigger should now handle profile creation.
+      // If signUpData.user exists, signup was successful at the auth level.
       if (signUpData.user) {
-        // User signed up in Supabase auth. Now create a profile in 'profiles' table.
-        // Ensure you have a 'profiles' table with columns: id (matches auth.users.id), full_name, role, avatar_url
-        const { error: profileError } = await supabase
-          .from('profiles')
-          .insert({ 
-            id: signUpData.user.id, 
-            full_name: values.name, 
-            role: values.role,
-            // avatar_url: can be set later or a default
-          });
-
-        if (profileError) {
           toast({
-            title: 'Profile Creation Failed',
-            description: profileError.message || 'User signed up, but profile creation failed. Please contact support.',
-            variant: 'destructive',
+            title: 'Signup Almost Complete!',
+            description: 'Your account has been initiated. If email confirmation is enabled, please check your email to confirm your account, then log in.',
           });
-          // Potentially clean up the auth user if profile creation is critical
-        } else {
-          toast({
-            title: 'Signup Successful!',
-            description: 'Your account has been created. Please check your email to confirm if required by settings, then log in.',
-          });
-          // If email confirmation is off, user might be logged in.
-          // AuthContext's onAuthStateChange will handle setting the user.
-          // Redirect to login page, or dashboard if auto-login happens.
-           router.push('/auth/login'); 
-        }
-      } else {
+          // If email confirmation is off, or for auto-login scenarios,
+          // AuthContext's onAuthStateChange will handle setting the user and profile.
+           router.push('/auth/login');
+      } else if (!signUpData.session && signUpData.user === null) {
+        // This case can happen if email confirmation is required.
+        // The user is created in auth.users but no session is started yet.
+        toast({
+            title: 'Confirmation Email Sent',
+            description: 'Please check your email to confirm your account, then you can log in.',
+        });
+        router.push('/auth/login');
+      }
+       else {
          // Should not happen if signUpError is null, but good to handle
          toast({
           title: 'Signup Issue',
-          description: 'An unexpected issue occurred during signup.',
+          description: 'An unexpected issue occurred during signup. Please check if your email is already registered or try again.',
           variant: 'destructive',
         });
       }
@@ -118,11 +116,10 @@ export function SignupForm() {
         variant: "default",
         duration: 5000,
       });
-      const user = mockLogin(values.email, values.name); // mockLogin can create a user
+      const user = mockLogin(values.email, values.name); 
       if (user) {
-        // Mock update role - in a real app, role comes from DB
-        user.role = values.role as UserRole; 
-        localStorage.setItem('currentUser', JSON.stringify(user)); 
+        user.role = values.role as UserRole;
+        localStorage.setItem('currentUser', JSON.stringify(user));
 
         toast({
           title: 'Mock Signup Successful',
@@ -229,3 +226,4 @@ export function SignupForm() {
     </Form>
   );
 }
+
