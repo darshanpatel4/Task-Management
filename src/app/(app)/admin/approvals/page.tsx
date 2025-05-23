@@ -1,3 +1,4 @@
+
 'use client';
 
 import { useState, useMemo } from 'react';
@@ -21,10 +22,11 @@ export default function ApprovalsPage() {
   const { toast } = useToast();
   
   // Local state to manage tasks for this demo page
-  const [tasks, setTasks] = useState<Task[]>(mockTasks);
+  const [tasks, setTasks] = useState<Task[]>(mockTasks.map(task => ({...task}))); // Create a deep copy for local state
 
   const pendingApprovalTasks = useMemo(() => {
-    return tasks.filter(task => task.status === 'Completed').sort((a,b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+    // Filter from the local 'tasks' state
+    return tasks.filter(task => task.status === 'Completed').sort((a,b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime());
   }, [tasks]);
 
 
@@ -46,20 +48,21 @@ export default function ApprovalsPage() {
   
   const handleApprove = (taskId: string) => {
     setTasks(prevTasks => prevTasks.map(task => 
-      task.id === taskId ? { ...task, status: 'Approved' } : task
+      task.id === taskId ? { ...task, status: 'Approved' as TaskStatus } : task
     ));
-    // Also update the global mockTasks array for consistency across the app in this demo
-    const taskIndex = mockTasks.findIndex(t => t.id === taskId);
-    if (taskIndex !== -1) mockTasks[taskIndex].status = 'Approved';
+    // Removed direct mutation of global mockTasks:
+    // const taskIndex = mockTasks.findIndex(t => t.id === taskId);
+    // if (taskIndex !== -1) mockTasks[taskIndex].status = 'Approved';
     toast({ title: "Task Approved", description: `Task ID ${taskId} has been approved.`});
   };
 
   const handleReject = (taskId: string) => {
      setTasks(prevTasks => prevTasks.map(task => 
-      task.id === taskId ? { ...task, status: 'In Progress' } : task // Or 'Pending' / new status 'Rejected'
+      task.id === taskId ? { ...task, status: 'In Progress' as TaskStatus } : task // Or 'Pending' / new status 'Rejected'
     ));
-    const taskIndex = mockTasks.findIndex(t => t.id === taskId);
-    if (taskIndex !== -1) mockTasks[taskIndex].status = 'In Progress';
+    // Removed direct mutation of global mockTasks:
+    // const taskIndex = mockTasks.findIndex(t => t.id === taskId);
+    // if (taskIndex !== -1) mockTasks[taskIndex].status = 'In Progress';
     toast({ title: "Task Rejected", description: `Task ID ${taskId} has been sent back to 'In Progress'.`, variant: "destructive"});
   };
 
@@ -96,7 +99,7 @@ export default function ApprovalsPage() {
                     </TableCell>
                     <TableCell>{task.assigneeName || 'N/A'}</TableCell>
                     <TableCell>{task.projectName || 'N/A'}</TableCell>
-                    <TableCell>{format(new Date(task.dueDate), 'MMM d, yyyy')}</TableCell> {/* Assuming dueDate is completion date for now */}
+                    <TableCell>{task.dueDate ? format(new Date(task.dueDate), 'MMM d, yyyy') : 'N/A'}</TableCell> {/* Assuming dueDate is completion date for now */}
                     <TableCell className="text-right">
                       <div className="flex justify-end gap-1">
                         <Link href={`/tasks/${task.id}`}>
