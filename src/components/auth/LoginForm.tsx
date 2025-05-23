@@ -1,3 +1,4 @@
+
 'use client';
 
 import { zodResolver } from '@hookform/resolvers/zod';
@@ -17,17 +18,20 @@ import { useAuth } from '@/context/AuthContext';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { useToast } from '@/hooks/use-toast';
-import { Mail, Lock } from 'lucide-react';
+import { Mail, Lock, Loader2 } from 'lucide-react';
+import { supabase } from '@/lib/supabaseClient';
+import { useState } from 'react';
 
 const formSchema = z.object({
   email: z.string().email({ message: 'Invalid email address.' }),
-  password: z.string().min(1, { message: 'Password is required.' }), // Simplified for mock
+  password: z.string().min(1, { message: 'Password is required.' }),
 });
 
 export function LoginForm() {
-  const { login } = useAuth();
+  const { mockLogin } = useAuth(); // Get mockLogin from context for fallback
   const router = useRouter();
   const { toast } = useToast();
+  const [isLoading, setIsLoading] = useState(false);
 
   const form = useForm<z.infer<typeof formSchema>>({
     resolver: zodResolver(formSchema),
@@ -37,21 +41,53 @@ export function LoginForm() {
     },
   });
 
-  function onSubmit(values: z.infer<typeof formSchema>) {
-    const user = login(values.email); // Mock login, password not checked
-    if (user) {
-      toast({
-        title: 'Login Successful',
-        description: `Welcome back, ${user.name}!`,
+  async function onSubmit(values: z.infer<typeof formSchema>) {
+    setIsLoading(true);
+    if (supabase) {
+      // Attempt Supabase login
+      const { data, error } = await supabase.auth.signInWithPassword({
+        email: values.email,
+        password: values.password,
       });
-      router.push('/dashboard');
+
+      if (error) {
+        toast({
+          title: 'Login Failed',
+          description: error.message || 'Invalid Supabase credentials. Please try again.',
+          variant: 'destructive',
+        });
+      } else if (data.user) {
+        // AuthContext's onAuthStateChange will handle profile fetching and setting currentUser
+        toast({
+          title: 'Login Successful',
+          description: `Welcome back!`, // Name will be updated by AuthContext
+        });
+        router.push('/dashboard'); // onAuthStateChange in AuthContext will also manage redirection if needed
+      }
     } else {
+      // Fallback to mock login if Supabase client is not initialized
       toast({
-        title: 'Login Failed',
-        description: 'Invalid credentials. Please try again.',
-        variant: 'destructive',
+        title: "Supabase Not Configured",
+        description: "Using mock login. Please configure Supabase environment variables for full functionality.",
+        variant: "default",
+        duration: 5000,
       });
+      const user = mockLogin(values.email, undefined); // Use mockLogin from context
+      if (user) {
+        toast({
+          title: 'Mock Login Successful',
+          description: `Welcome back, ${user.name}!`,
+        });
+        router.push('/dashboard');
+      } else {
+        toast({
+          title: 'Mock Login Failed',
+          description: 'Invalid mock credentials. Please try again.',
+          variant: 'destructive',
+        });
+      }
     }
+    setIsLoading(false);
   }
 
   return (
@@ -89,7 +125,8 @@ export function LoginForm() {
             </FormItem>
           )}
         />
-        <Button type="submit" className="w-full bg-primary hover:bg-primary/90 text-primary-foreground">
+        <Button type="submit" className="w-full bg-primary hover:bg-primary/90 text-primary-foreground" disabled={isLoading}>
+          {isLoading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
           Sign In
         </Button>
         <p className="text-center text-sm text-muted-foreground">
