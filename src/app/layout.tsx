@@ -1,3 +1,4 @@
+
 import type { Metadata } from 'next';
 import { Inter } from 'next/font/google'; // Using Inter as a common sans-serif font
 import './globals.css';
@@ -13,6 +14,7 @@ const geistSans = Geist({
 export const metadata: Metadata = {
   title: 'TaskFlow AI',
   description: 'Task Management Platform by TaskFlow AI',
+  icons: null, // Opt-out of all default icon generation
 };
 
 export default function RootLayout({

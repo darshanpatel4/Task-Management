@@ -13,25 +13,28 @@ export type TaskStatus = 'Pending' | 'In Progress' | 'Completed' | 'Approved';
 export type TaskPriority = 'Low' | 'Medium' | 'High';
 
 export interface Task {
-  id: string;
+  id: string; // uuid
   title: string;
   description: string;
-  assigneeId: string; // User ID
+  assignee_id?: string; // User ID (from profiles)
   assigneeName?: string; // Denormalized for easy display
-  dueDate: string; // ISO date string
+  dueDate?: string; // ISO date string
   priority: TaskPriority;
-  projectId: string;
+  project_id: string; // uuid
   projectName?: string; // Denormalized for easy display
   status: TaskStatus;
-  createdAt: string; // ISO date string
+  created_at: string; // ISO date string
+  user_id?: string; // uuid, creator
   logs?: TaskLog[];
   comments?: TaskComment[];
 }
 
 export interface Project {
-  id: string;
+  id: string; // uuid
   name: string;
   description?: string;
+  user_id?: string | null; // uuid, creator, can be null if user is deleted
+  created_at?: string; // ISO date string
 }
 
 export interface TaskLog {
