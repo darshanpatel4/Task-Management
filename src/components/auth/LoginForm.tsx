@@ -16,7 +16,7 @@ import {
 import { Input } from '@/components/ui/input';
 import { useAuth } from '@/context/AuthContext';
 import { useRouter } from 'next/navigation';
-import Link from 'next/link';
+// import Link from 'next/link'; // Removed Link import
 import { useToast } from '@/hooks/use-toast';
 import { Mail, Lock, Loader2 } from 'lucide-react';
 import { supabase } from '@/lib/supabaseClient';
@@ -129,12 +129,15 @@ export function LoginForm() {
           {isLoading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
           Sign In
         </Button>
+        {/* Removed the link to signup page */}
+        {/* 
         <p className="text-center text-sm text-muted-foreground">
           Don&apos;t have an account?{' '}
           <Link href="/auth/signup" className="font-medium text-primary hover:underline">
             Sign up
           </Link>
-        </p>
+        </p> 
+        */}
       </form>
     </Form>
   );

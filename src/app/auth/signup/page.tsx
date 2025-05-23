@@ -1,14 +1,31 @@
-import { SignupForm } from '@/components/auth/SignupForm';
-import { CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
+
+'use client';
+
+import { useEffect } from 'react';
+import { useRouter } from 'next/navigation';
+import { Loader2 } from 'lucide-react';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 
 export default function SignupPage() {
+  const router = useRouter();
+
+  useEffect(() => {
+    // Redirect all attempts to access this page to the login page.
+    router.replace('/auth/login');
+  }, [router]);
+
   return (
-    <>
-      <CardHeader className="text-center p-0 mb-6">
-        <CardTitle className="text-2xl font-bold tracking-tight">Create an Account</CardTitle>
-        <CardDescription>Join TaskFlow AI to streamline your project management.</CardDescription>
-      </CardHeader>
-      <SignupForm />
-    </>
+    // Show a loading/redirecting state while the redirect happens.
+    <div className="flex flex-col items-center justify-center min-h-screen p-4">
+        <Card className="w-full max-w-md">
+            <CardHeader>
+                <CardTitle>Redirecting...</CardTitle>
+                <CardDescription>Public signup is disabled. Redirecting to login.</CardDescription>
+            </CardHeader>
+            <CardContent className="flex justify-center">
+                 <Loader2 className="h-8 w-8 animate-spin text-primary" />
+            </CardContent>
+        </Card>
+    </div>
   );
 }
