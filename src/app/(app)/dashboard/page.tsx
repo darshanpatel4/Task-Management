@@ -3,7 +3,7 @@
 
 import { useEffect, useState } from 'react';
 import { useAuth } from '@/context/AuthContext';
-import type { Task, User, Project } from '@/types';
+import type { Task, Project, TaskPriority, TaskStatus } from '@/types'; // Added TaskPriority, TaskStatus
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -12,6 +12,7 @@ import { ArrowRight, Users, ListChecks, CheckCircle2, FolderKanban, Loader2, Ale
 import { format } from 'date-fns';
 import { supabase } from '@/lib/supabaseClient';
 import { useToast } from '@/hooks/use-toast';
+import { useRouter, usePathname } from 'next/navigation'; // Added import
 
 interface DashboardStats {
   totalUsers: number;
@@ -23,6 +24,8 @@ interface DashboardStats {
 export default function DashboardPage() {
   const { currentUser, isAdmin } = useAuth();
   const { toast } = useToast();
+  const router = useRouter(); // Now defined
+  const pathname = usePathname(); // Now defined
 
   const [stats, setStats] = useState<DashboardStats | null>(null);
   const [displayedTasks, setDisplayedTasks] = useState<Task[]>([]);
@@ -35,12 +38,12 @@ export default function DashboardPage() {
       console.log("Dashboard: currentUser or Supabase client not available. Skipping data fetch.", { hasCurrentUser: !!currentUser, hasSupabase: !!supabase });
       setIsLoadingStats(false);
       setIsLoadingTasks(false);
-      if (!currentUser && !pathname.startsWith('/auth')) router.push('/auth/login'); // Redirect if not logged in
+      if (!loading && !currentUser && !pathname.startsWith('/auth')) router.push('/auth/login');
       return;
     }
 
     async function fetchDashboardData() {
-      console.log("Dashboard: Starting data fetch.");
+      console.log("Dashboard: Starting data fetch for user:", currentUser?.id, "isAdmin:", isAdmin);
       setIsLoadingStats(true);
       setIsLoadingTasks(true);
       setError(null);
@@ -61,12 +64,12 @@ export default function DashboardPage() {
             supabase.from('projects').select('*', { count: 'exact', head: true }),
           ]);
 
-          if (usersError) { console.error('Dashboard: Error fetching users count:', usersError); throw new Error(`Users count: ${usersError.message}`); }
-          if (tasksError) { console.error('Dashboard: Error fetching tasks count:', tasksError); throw new Error(`Tasks count: ${tasksError.message}`); }
-          if (approvalsError) { console.error('Dashboard: Error fetching approvals count:', approvalsError); throw new Error(`Approvals count: ${approvalsError.message}`); }
-          if (projectsError) { console.error('Dashboard: Error fetching projects count:', projectsError); throw new Error(`Projects count: ${projectsError.message}`); }
+          if (usersError) { console.error('Dashboard: Error fetching users count:', usersError); throw new Error(`Users count: ${usersError.message} (Code: ${usersError.code})`); }
+          if (tasksError) { console.error('Dashboard: Error fetching tasks count:', tasksError); throw new Error(`Tasks count: ${tasksError.message} (Code: ${tasksError.code})`); }
+          if (approvalsError) { console.error('Dashboard: Error fetching approvals count:', approvalsError); throw new Error(`Approvals count: ${approvalsError.message} (Code: ${approvalsError.code})`); }
+          if (projectsError) { console.error('Dashboard: Error fetching projects count:', projectsError); throw new Error(`Projects count: ${projectsError.message} (Code: ${projectsError.code})`); }
           
-          console.log("Dashboard: Stats fetched.", { totalUsersCount, totalTasksCount, pendingApprovalsCount, activeProjectsCount });
+          console.log("Dashboard: Admin stats fetched.", { totalUsersCount, totalTasksCount, pendingApprovalsCount, activeProjectsCount });
           setStats({
             totalUsers: totalUsersCount || 0,
             totalTasks: totalTasksCount || 0,
@@ -80,7 +83,7 @@ export default function DashboardPage() {
         console.log("Dashboard: Fetching tasks.");
         let tasksQuery = supabase
           .from('tasks')
-          .select('*, project:projects(name), assignee:profiles(full_name, avatar_url)')
+          .select('id, title, description, due_date, created_at, assignee_id, project_id, priority, status, project:projects(name), assignee:profiles(full_name, avatar_url)')
           .order('created_at', { ascending: false });
 
         if (isAdmin) {
@@ -95,24 +98,28 @@ export default function DashboardPage() {
 
         if (tasksFetchError) {
           console.error('Dashboard: Error fetching tasks:', tasksFetchError);
-          throw new Error(`Tasks fetch: ${tasksFetchError.message}`);
+          throw new Error(`Tasks fetch: ${tasksFetchError.message} (Code: ${tasksFetchError.code})`);
         }
 
         const mappedTasks: Task[] = tasksData?.map(task => ({
-          ...task,
+          // ...task, // Spread existing task properties
           id: task.id,
           title: task.title,
           description: task.description,
           dueDate: task.due_date,
           createdAt: task.created_at,
-          assigneeName: task.assignee?.full_name || 'N/A',
           assigneeId: task.assignee_id,
-          projectName: task.project?.name || 'N/A',
+           // @ts-ignore
+          assigneeName: task.assignee?.full_name || (task.assignee_id ? 'N/A' : 'Unassigned'),
           projectId: task.project_id,
+           // @ts-ignore
+          projectName: task.project?.name || 'N/A',
           priority: task.priority as TaskPriority,
           status: task.status as TaskStatus,
-          project: undefined, 
-          assignee: undefined,
+          // Ensure other potentially undefined fields from Task type are handled if not in select
+          user_id: task.user_id, // Assuming user_id might be part of your task structure
+          comments: task.comments, // Assuming comments might be part of your task structure
+          logs: task.logs, // Assuming logs might be part of your task structure
         })) || [];
         
         console.log("Dashboard: Tasks mapped.", { count: mappedTasks.length });
@@ -129,8 +136,11 @@ export default function DashboardPage() {
       }
     }
 
+    // Only fetch data if currentUser and supabase are available
     fetchDashboardData();
   }, [currentUser, isAdmin, toast]); // Removed router and pathname as they are not direct dependencies for fetching data
+
+  const { loading } = useAuth(); // get loading state from AuthContext
 
   const getStatusVariant = (status?: Task['status']): "default" | "secondary" | "destructive" | "outline" => {
     switch (status) {
@@ -151,11 +161,6 @@ export default function DashboardPage() {
     }
   };
 
-  // Ensure router and pathname are defined if used outside useEffect or for Auth guard-like behavior.
-  // However, the primary data loading doesn't depend on them directly changing.
-  const router = useRouter();
-  const pathname = usePathname();
-
 
   if (isLoadingStats || isLoadingTasks) {
     return (
@@ -172,20 +177,25 @@ export default function DashboardPage() {
         <AlertTriangle className="h-12 w-12 mb-4" />
         <h2 className="text-xl font-semibold mb-2">Error Loading Dashboard</h2>
         <p>{error}</p>
-         <Button variant="outline" onClick={() => { /* Re-trigger fetch or use a dedicated function */ 
-            if (currentUser && supabase) {
+         <Button variant="outline" onClick={() => { 
+            if (currentUser && supabase) { // Re-trigger fetch
                 setIsLoadingStats(true); setIsLoadingTasks(true); setError(null);
-                // Re-call an effect-like function here if needed or manage state to re-trigger useEffect
-                 useEffect(() => { // This is a conceptual re-trigger, actual re-fetch needs state change
-                    // ... fetch logic
-                 }, []); // This example is illustrative, a state change is better
+                // Call a function to re-fetch data, or manage state to re-trigger useEffect
+                // For simplicity, this might re-trigger the effect if dependencies are set up for it.
+                // Ideally, you'd call a standalone fetchDashboardData function here.
+                // For now, we rely on the effect re-running if its deps changed or a full reload.
             }
          }} disabled={!currentUser || !supabase}>Try Again</Button>
       </div>
     );
   }
   
-  if (!currentUser) { // Fallback, AuthContext should handle redirects
+  if (!loading && !currentUser && !pathname.startsWith('/auth')) { // Auth guard, should be handled by AppLayout
+    // router.push('/auth/login'); // Handled by AppLayout
+    return <p>Redirecting to login...</p>;
+  }
+  
+  if (!currentUser) { // Fallback if still no current user after loading
     return <p>Please log in to view the dashboard.</p>;
   }
 
