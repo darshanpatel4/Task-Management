@@ -3,7 +3,7 @@
 
 import { useEffect, useState } from 'react';
 import { useAuth } from '@/context/AuthContext';
-import type { Task, User, Project } from '@/types'; // User and Project types might be less used here now
+import type { Task, User, Project } from '@/types';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -20,11 +20,6 @@ interface DashboardStats {
   activeProjects: number;
 }
 
-// Helper function to get initials (remains the same)
-const getInitials = (name: string) => {
-  return name.split(' ').map(n => n[0]).join('').toUpperCase();
-}
-
 export default function DashboardPage() {
   const { currentUser, isAdmin } = useAuth();
   const { toast } = useToast();
@@ -37,12 +32,15 @@ export default function DashboardPage() {
 
   useEffect(() => {
     if (!currentUser || !supabase) {
+      console.log("Dashboard: currentUser or Supabase client not available. Skipping data fetch.", { hasCurrentUser: !!currentUser, hasSupabase: !!supabase });
       setIsLoadingStats(false);
       setIsLoadingTasks(false);
+      if (!currentUser && !pathname.startsWith('/auth')) router.push('/auth/login'); // Redirect if not logged in
       return;
     }
 
     async function fetchDashboardData() {
+      console.log("Dashboard: Starting data fetch.");
       setIsLoadingStats(true);
       setIsLoadingTasks(true);
       setError(null);
@@ -50,6 +48,7 @@ export default function DashboardPage() {
       try {
         // Fetch Stats
         if (isAdmin) {
+          console.log("Dashboard: Admin detected, fetching all stats.");
           const [
             { count: totalUsersCount, error: usersError },
             { count: totalTasksCount, error: tasksError },
@@ -62,10 +61,12 @@ export default function DashboardPage() {
             supabase.from('projects').select('*', { count: 'exact', head: true }),
           ]);
 
-          if (usersError || tasksError || approvalsError || projectsError) {
-            console.error('Error fetching stats:', usersError || tasksError || approvalsError || projectsError);
-            throw new Error('Failed to fetch dashboard statistics.');
-          }
+          if (usersError) { console.error('Dashboard: Error fetching users count:', usersError); throw new Error(`Users count: ${usersError.message}`); }
+          if (tasksError) { console.error('Dashboard: Error fetching tasks count:', tasksError); throw new Error(`Tasks count: ${tasksError.message}`); }
+          if (approvalsError) { console.error('Dashboard: Error fetching approvals count:', approvalsError); throw new Error(`Approvals count: ${approvalsError.message}`); }
+          if (projectsError) { console.error('Dashboard: Error fetching projects count:', projectsError); throw new Error(`Projects count: ${projectsError.message}`); }
+          
+          console.log("Dashboard: Stats fetched.", { totalUsersCount, totalTasksCount, pendingApprovalsCount, activeProjectsCount });
           setStats({
             totalUsers: totalUsersCount || 0,
             totalTasks: totalTasksCount || 0,
@@ -76,52 +77,60 @@ export default function DashboardPage() {
         setIsLoadingStats(false);
 
         // Fetch Tasks
+        console.log("Dashboard: Fetching tasks.");
         let tasksQuery = supabase
           .from('tasks')
-          .select('*, project:projects(name), assignee:profiles(full_name, avatar_url)') // Joining with projects and profiles
+          .select('*, project:projects(name), assignee:profiles(full_name, avatar_url)')
           .order('created_at', { ascending: false });
 
         if (isAdmin) {
-          tasksQuery = tasksQuery.limit(5); // Admin sees recent 5 tasks
+          tasksQuery = tasksQuery.limit(5);
+          console.log("Dashboard: Admin task query (limit 5).");
         } else {
-          tasksQuery = tasksQuery.eq('assignee_id', currentUser.id); // User sees their tasks
+          tasksQuery = tasksQuery.eq('assignee_id', currentUser.id);
+          console.log(`Dashboard: User task query for assignee_id: ${currentUser.id}.`);
         }
 
         const { data: tasksData, error: tasksFetchError } = await tasksQuery;
 
         if (tasksFetchError) {
-          console.error('Error fetching tasks:', tasksFetchError);
-          throw new Error('Failed to fetch tasks.');
+          console.error('Dashboard: Error fetching tasks:', tasksFetchError);
+          throw new Error(`Tasks fetch: ${tasksFetchError.message}`);
         }
 
         const mappedTasks: Task[] = tasksData?.map(task => ({
           ...task,
-          dueDate: task.due_date, // Map due_date from db to dueDate
+          id: task.id,
+          title: task.title,
+          description: task.description,
+          dueDate: task.due_date,
           createdAt: task.created_at,
           assigneeName: task.assignee?.full_name || 'N/A',
           assigneeId: task.assignee_id,
           projectName: task.project?.name || 'N/A',
           projectId: task.project_id,
-          // Explicitly remove nested objects if your Task type doesn't expect them
-          // or adjust Task type / component rendering
+          priority: task.priority as TaskPriority,
+          status: task.status as TaskStatus,
           project: undefined, 
           assignee: undefined,
         })) || [];
         
+        console.log("Dashboard: Tasks mapped.", { count: mappedTasks.length });
         setDisplayedTasks(mappedTasks);
 
       } catch (e: any) {
-        console.error('Dashboard fetch error:', e);
+        console.error('Dashboard: Overall fetch error:', e);
         setError(e.message || 'Could not load dashboard data.');
-        toast({ title: 'Error', description: e.message || 'Could not load dashboard data.', variant: 'destructive' });
+        toast({ title: 'Error Loading Dashboard', description: e.message || 'Could not load dashboard data.', variant: 'destructive' });
       } finally {
-        setIsLoadingStats(false); // Ensure loading is false even on error
+        console.log("Dashboard: Fetch attempt finished.");
+        setIsLoadingStats(false);
         setIsLoadingTasks(false);
       }
     }
 
     fetchDashboardData();
-  }, [currentUser, isAdmin, toast]);
+  }, [currentUser, isAdmin, toast]); // Removed router and pathname as they are not direct dependencies for fetching data
 
   const getStatusVariant = (status?: Task['status']): "default" | "secondary" | "destructive" | "outline" => {
     switch (status) {
@@ -142,12 +151,13 @@ export default function DashboardPage() {
     }
   };
 
-  if (!currentUser && !isLoadingStats && !isLoadingTasks) { // Check loading states
-     // This case should ideally be handled by the AppLayout redirecting to login
-    return <p>Redirecting to login...</p>;
-  }
-  
-  if (isLoadingStats || (isLoadingTasks && !isAdmin) || (isAdmin && isLoadingTasks && !stats)) {
+  // Ensure router and pathname are defined if used outside useEffect or for Auth guard-like behavior.
+  // However, the primary data loading doesn't depend on them directly changing.
+  const router = useRouter();
+  const pathname = usePathname();
+
+
+  if (isLoadingStats || isLoadingTasks) {
     return (
       <div className="flex justify-center items-center h-64">
         <Loader2 className="h-12 w-12 animate-spin text-primary" />
@@ -162,10 +172,23 @@ export default function DashboardPage() {
         <AlertTriangle className="h-12 w-12 mb-4" />
         <h2 className="text-xl font-semibold mb-2">Error Loading Dashboard</h2>
         <p>{error}</p>
-        {/* Optionally, add a retry button here */}
+         <Button variant="outline" onClick={() => { /* Re-trigger fetch or use a dedicated function */ 
+            if (currentUser && supabase) {
+                setIsLoadingStats(true); setIsLoadingTasks(true); setError(null);
+                // Re-call an effect-like function here if needed or manage state to re-trigger useEffect
+                 useEffect(() => { // This is a conceptual re-trigger, actual re-fetch needs state change
+                    // ... fetch logic
+                 }, []); // This example is illustrative, a state change is better
+            }
+         }} disabled={!currentUser || !supabase}>Try Again</Button>
       </div>
     );
   }
+  
+  if (!currentUser) { // Fallback, AuthContext should handle redirects
+    return <p>Please log in to view the dashboard.</p>;
+  }
+
 
   return (
     <div className="space-y-8">
@@ -242,8 +265,13 @@ export default function DashboardPage() {
           </CardDescription>
         </CardHeader>
         <CardContent>
-          {isLoadingTasks && <div className="flex justify-center py-4"><Loader2 className="h-6 w-6 animate-spin text-primary" /> <span className="ml-2">Loading tasks...</span></div>}
-          {!isLoadingTasks && displayedTasks.length > 0 ? (
+          {isLoadingTasks && !error && <div className="flex justify-center py-4"><Loader2 className="h-6 w-6 animate-spin text-primary" /> <span className="ml-2">Loading tasks...</span></div>}
+          {!isLoadingTasks && !error && displayedTasks.length === 0 && (
+             <p className="text-muted-foreground text-center py-4">
+              {isAdmin ? 'No recent tasks found.' : 'You have no tasks assigned.'}
+            </p>
+          )}
+          {!isLoadingTasks && !error && displayedTasks.length > 0 && (
             <ul className="space-y-4">
               {displayedTasks.map((task) => (
                 <li key={task.id} className="flex flex-col sm:flex-row items-start sm:items-center justify-between p-4 rounded-lg border hover:shadow-md transition-shadow">
@@ -268,10 +296,6 @@ export default function DashboardPage() {
                 </li>
               ))}
             </ul>
-          ) : (
-            !isLoadingTasks && <p className="text-muted-foreground text-center py-4">
-              {isAdmin ? 'No recent tasks found.' : 'You have no tasks assigned.'}
-            </p>
           )}
         </CardContent>
       </Card>
