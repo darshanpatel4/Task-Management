@@ -8,7 +8,7 @@ import { Button } from '@/components/ui/button';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
-import { PlusCircle, Edit3, Trash2, ShieldCheck, UserCircle, Loader2, AlertTriangle } from 'lucide-react';
+import { UserPlus, Edit3, Trash2, ShieldCheck, UserCircle, Loader2, AlertTriangle } from 'lucide-react'; // Added UserPlus
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { useRouter } from 'next/navigation';
 import { supabase } from '@/lib/supabaseClient';
@@ -38,18 +38,17 @@ export default function UserManagementPage() {
     setIsLoading(true);
     setError(null);
     try {
-      // Fetch users from the 'profiles' table.
-      // Assumes 'profiles' table now has an 'email' column populated by the trigger.
+      // Fetch users from the 'profiles' table including the new 'email' column.
       const { data, error: supabaseError } = await supabase
         .from('profiles')
-        .select('id, full_name, email, role, avatar_url'); // Changed to select 'email'
+        .select('id, full_name, email, role, avatar_url'); 
 
       if (supabaseError) throw supabaseError;
       
       const mappedUsers: User[] = (data || []).map(profile => ({
         id: profile.id,
         name: profile.full_name || 'N/A',
-        email: profile.email || 'N/A (Email missing in profile)', // Use the 'email' field from profiles
+        email: profile.email || 'N/A (Email missing in profile)',
         role: profile.role as User['role'] || 'User',
         avatar: profile.avatar_url || undefined,
       }));
@@ -124,7 +123,7 @@ export default function UserManagementPage() {
     }
   };
   
-  const handleCreateUser = () => {
+  const handleAddUser = () => {
     router.push('/admin/users/create'); 
   };
 
@@ -135,7 +134,9 @@ export default function UserManagementPage() {
           <h1 className="text-3xl font-bold tracking-tight">User Management</h1>
           <p className="text-muted-foreground">Manage all user profiles in the system.</p>
         </div>
-        {/* The button to create user is now in the sidebar as "Create New User" */}
+        <Button onClick={handleAddUser} disabled={isLoading || !supabase}>
+          <UserPlus className="mr-2 h-4 w-4" /> Add User
+        </Button>
       </div>
 
       <Card>

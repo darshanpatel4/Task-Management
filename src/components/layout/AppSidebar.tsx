@@ -4,24 +4,22 @@
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { useAuth } from '@/context/AuthContext';
-import { Sidebar, SidebarMenu, SidebarMenuItem, SidebarMenuButton, SidebarHeader, SidebarFooter, SidebarContent, SidebarSeparator } from '@/components/ui/sidebar'; // Removed SidebarGroup, SidebarGroupLabel
-import { LayoutDashboard, ListChecks, Users, Settings, BrainCircuit, LogOut, FolderKanban, CheckCircle2, UserPlus } from 'lucide-react';
+import { Sidebar, SidebarMenu, SidebarMenuItem, SidebarMenuButton, SidebarHeader, SidebarFooter, SidebarContent, SidebarSeparator } from '@/components/ui/sidebar';
+import { LayoutDashboard, ListChecks, Users, Settings, BrainCircuit, LogOut, FolderKanban, CheckCircle2 } from 'lucide-react'; // Removed UserPlus
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import type { NavItem } from '@/types';
 import { cn } from '@/lib/utils';
 
 const navItems: NavItem[] = [
   { href: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
-  { href: '/tasks', label: 'Tasks', icon: ListChecks }, // For all users (non-admin too)
+  { href: '/tasks', label: 'Tasks', icon: ListChecks },
   // Admin-specific top-level items:
   { href: '/admin/users', label: 'User Management', icon: Users, adminOnly: true },
-  { href: '/admin/users/create', label: 'Create New User', icon: UserPlus, adminOnly: true },
+  // "Create New User" is now a button on the User Management page itself
   { href: '/admin/approvals', label: 'Task Approvals', icon: CheckCircle2, adminOnly: true },
   { href: '/admin/projects', label: 'Project Management', icon: FolderKanban, adminOnly: true },
   { href: '/ai-assigner', label: 'AI Assigner', icon: BrainCircuit, adminOnly: true },
-  // General settings, available to all logged-in users
-  // If settings should also be admin only, add adminOnly: true
-  // { href: '/settings', label: 'Settings', icon: Settings }, 
+  // { href: '/settings', label: 'Settings', icon: Settings }, // General settings if needed
 ];
 
 export function AppSidebar() {
@@ -36,10 +34,9 @@ export function AppSidebar() {
   
   const renderNavItems = (items: NavItem[]) => {
     return items
-      .filter(item => isAdmin || !item.adminOnly) // Filter based on admin status
+      .filter(item => isAdmin || !item.adminOnly)
       .map((item) => {
-        // Determine if the current item or any of its children is active
-        const isItemActive = pathname.startsWith(item.href);
+        const isItemActive = pathname === item.href || (item.href !== '/' && pathname.startsWith(item.href));
         
         return (
           <SidebarMenuItem key={item.href + item.label}>
@@ -53,7 +50,6 @@ export function AppSidebar() {
                 <span>{item.label}</span>
               </Link>
             </SidebarMenuButton>
-            {/* Child rendering logic removed as we flatten admin items */}
           </SidebarMenuItem>
         );
       });
