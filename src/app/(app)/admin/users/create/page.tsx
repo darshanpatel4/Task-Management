@@ -25,10 +25,10 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { useAuth } from '@/context/AuthContext';
 import { useRouter } from 'next/navigation';
 import { useToast } from '@/hooks/use-toast';
-import { Loader2, UserPlus, AlertTriangle, Briefcase, Lock, Mail, User } from 'lucide-react';
+import { Loader2, UserPlus, Briefcase, Lock, Mail, User } from 'lucide-react';
 import { useState } from 'react';
 import type { UserRole } from '@/types';
-import { adminCreateUser } from '@/actions/adminUserActions'; // Import the Server Action
+import { supabase } from '@/lib/supabaseClient'; // Import Supabase client
 
 const userCreateFormSchema = z.object({
   fullName: z.string().min(2, { message: 'Full name must be at least 2 characters.' }),
@@ -72,27 +72,64 @@ export default function AdminCreateUserPage() {
   }
 
   async function onSubmit(values: UserCreateFormValues) {
+    if (!supabase) {
+      toast({
+        title: 'Error',
+        description: 'Supabase client is not available. Please check your configuration.',
+        variant: 'destructive',
+      });
+      return;
+    }
+
     setIsSubmitting(true);
     try {
-      const result = await adminCreateUser(values);
+      const { data, error } = await supabase.auth.signUp({
+        email: values.email,
+        password: values.password,
+        options: {
+          data: {
+            full_name: values.fullName,
+            role: values.role,
+            // avatar_url could be added here if you have a default or collect it
+          },
+        },
+      });
 
-      if (result.success) {
+      if (error) {
+        // Check for common errors
+        if (error.message.includes('User already registered')) {
+          toast({
+            title: 'Error Creating User',
+            description: 'A user with this email address already exists.',
+            variant: 'destructive',
+          });
+        } else {
+          throw error; // Throw other errors to be caught by the generic catch block
+        }
+      } else if (data.user) {
+        // The on_auth_user_created trigger should handle profile creation.
+        // data.session will be null if email confirmation is required.
+        const message = data.session 
+          ? `User ${values.fullName} created successfully and can now log in.`
+          : `User ${values.fullName} registration initiated. Please check their email for confirmation.`;
+        
         toast({
-          title: 'User Created Successfully',
-          description: result.message,
+          title: 'User Creation Initiated',
+          description: message,
         });
         router.push('/admin/users'); // Redirect to user list
       } else {
+        // This case might occur if email confirmation is on, and no session is returned, but user object might be minimal.
         toast({
-          title: 'Error Creating User',
-          description: result.message,
-          variant: 'destructive',
+          title: 'User Registration Pending',
+          description: 'The user registration process has started. If email confirmation is enabled, they will need to confirm their email.',
         });
+        router.push('/admin/users');
       }
     } catch (error: any) {
-      console.error('Error submitting create user form:', error);
+      console.error('Error creating user:', error);
       toast({
-        title: 'Submission Error',
+        title: 'Error Creating User',
         description: error.message || 'An unexpected error occurred. Please try again.',
         variant: 'destructive',
       });
@@ -109,8 +146,8 @@ export default function AdminCreateUserPage() {
           Add New User
         </CardTitle>
         <CardDescription>
-          Fill in the details below to create a new user account and profile.
-          The new user will be created in Supabase authentication and their profile will be added via a trigger.
+          Fill in the details below to create a new user account.
+          The profile will be created via a database trigger using the provided full name and role.
         </CardDescription>
       </CardHeader>
       <CardContent>
@@ -203,3 +240,5 @@ export default function AdminCreateUserPage() {
     </Card>
   );
 }
+
+    
