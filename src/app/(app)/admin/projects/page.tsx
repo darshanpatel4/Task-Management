@@ -22,50 +22,44 @@ export default function ProjectManagementPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
-    if (!isAdmin) {
-      // Non-admins should not see this page, handled by layout/redirect ideally
-      // but added protection here.
+  async function fetchProjects() {
+    if (!supabase) {
+      setError("Supabase client is not available. Please check configuration.");
       setIsLoading(false);
       return;
     }
+    setIsLoading(true);
+    setError(null);
+    try {
+      const { data, error: supabaseError } = await supabase
+        .from('projects')
+        .select('id, name, description, created_at, user_id')
+        .order('created_at', { ascending: false });
 
-    async function fetchProjects() {
-      if (!supabase) {
-        setError("Supabase client is not available. Please check configuration.");
-        setIsLoading(false);
-        // Optionally load mock data here as a fallback if desired
-        // import { mockProjects } from '@/lib/mock-data';
-        // setProjects(mockProjects);
-        return;
+      if (supabaseError) {
+        throw supabaseError;
       }
-      setIsLoading(true);
-      setError(null);
-      try {
-        const { data, error: supabaseError } = await supabase
-          .from('projects')
-          .select('id, name, description, created_at, user_id')
-          .order('created_at', { ascending: false });
-
-        if (supabaseError) {
-          throw supabaseError;
-        }
-        setProjects(data || []);
-      } catch (e: any) {
-        console.error('Error fetching projects:', e);
-        setError('Failed to fetch projects. ' + e.message);
-        toast({
-          title: 'Error Fetching Projects',
-          description: e.message || 'Could not load projects from the database.',
-          variant: 'destructive',
-        });
-      } finally {
-        setIsLoading(false);
-      }
+      setProjects(data || []);
+    } catch (e: any) {
+      console.error('Error fetching projects:', e);
+      setError('Failed to fetch projects. ' + e.message);
+      toast({
+        title: 'Error Fetching Projects',
+        description: e.message || 'Could not load projects from the database.',
+        variant: 'destructive',
+      });
+    } finally {
+      setIsLoading(false);
     }
+  }
 
+  useEffect(() => {
+    if (!isAdmin) {
+      setIsLoading(false);
+      return;
+    }
     fetchProjects();
-  }, [isAdmin, toast]);
+  }, [isAdmin, toast]); // Removed fetchProjects from dependency array to avoid re-fetching on every render
 
   if (!isAdmin) {
     return (
@@ -83,21 +77,29 @@ export default function ProjectManagementPage() {
     );
   }
 
-  const handleCreateProject = async () => {
-    // Placeholder: This would navigate to a create project form or open a dialog
-    // For now, we'll just log and show a toast.
-    // In a real implementation, you would collect project details and insert into Supabase.
-    // Example: router.push('/admin/projects/create');
-    alert('Create new project (Supabase integration pending for CUD operations)');
-    toast({
-      title: "Create Project",
-      description: "Functionality to create projects via Supabase will be added here."
-    });
+  const handleCreateProject = () => {
+    if (!supabase) {
+      toast({
+        title: "Supabase Not Configured",
+        description: "Cannot create project. Please check Supabase setup.",
+        variant: "destructive",
+      });
+      return;
+    }
+    router.push('/admin/projects/create');
   };
 
   const handleEditProject = (projectId: string) => {
     // Placeholder: This would navigate to an edit project form
     // Example: router.push(`/admin/projects/edit/${projectId}`);
+    if (!supabase) {
+      toast({
+        title: "Supabase Not Configured",
+        description: `Cannot edit project ${projectId}. Please check Supabase setup.`,
+        variant: "destructive",
+      });
+      return;
+    }
     alert(`Edit project ${projectId} (Supabase integration pending for CUD operations)`);
      toast({
       title: "Edit Project",
@@ -106,24 +108,36 @@ export default function ProjectManagementPage() {
   };
 
   const handleDeleteProject = async (projectId: string) => {
-    // Placeholder: This would call Supabase to delete the project
-    if (confirm(`Are you sure you want to delete project ${projectId}? (Supabase integration pending)`)) {
-       alert(`Project ${projectId} delete action (Supabase integration pending).`);
-       toast({
-        title: "Delete Project",
-        description: `Functionality to delete project ${projectId} via Supabase will be added here.`,
-        variant: "destructive"
+    if (!supabase) {
+      toast({
+        title: "Supabase Not Configured",
+        description: `Cannot delete project ${projectId}. Please check Supabase setup.`,
+        variant: "destructive",
       });
-      // Example Supabase call:
-      // if (supabase) {
-      //   const { error } = await supabase.from('projects').delete().match({ id: projectId });
-      //   if (error) {
-      //     toast({ title: "Error", description: error.message, variant: "destructive" });
-      //   } else {
-      //     toast({ title: "Success", description: "Project deleted." });
-      //     setProjects(prev => prev.filter(p => p.id !== projectId));
-      //   }
-      // }
+      return;
+    }
+    if (confirm(`Are you sure you want to delete project ${projectId}? This action cannot be undone.`)) {
+       setIsLoading(true);
+       try {
+        const { error: deleteError } = await supabase
+            .from('projects')
+            .delete()
+            .match({ id: projectId });
+
+        if (deleteError) throw deleteError;
+        
+        toast({ title: "Project Deleted", description: `Project ${projectId} has been deleted.` });
+        setProjects(prevProjects => prevProjects.filter(p => p.id !== projectId)); // Refresh list
+
+       } catch (e: any) {
+         toast({
+            title: "Error Deleting Project",
+            description: e.message || "Could not delete the project.",
+            variant: "destructive",
+         });
+       } finally {
+         setIsLoading(false);
+       }
     }
   };
   
@@ -157,7 +171,7 @@ export default function ProjectManagementPage() {
               <AlertTriangle className="h-8 w-8 mb-2" />
               <p className="font-semibold">Error Loading Projects</p>
               <p className="text-sm">{error}</p>
-              <Button variant="outline" size="sm" className="mt-4" onClick={() => window.location.reload()}>Try Again</Button>
+              <Button variant="outline" size="sm" className="mt-4" onClick={fetchProjects}>Try Again</Button>
             </div>
           )}
           {!isLoading && !error && projects.length === 0 && (
@@ -186,10 +200,10 @@ export default function ProjectManagementPage() {
                     </TableCell>
                     <TableCell className="text-right">
                        <div className="flex justify-end gap-1">
-                          <Button variant="ghost" size="icon" onClick={() => handleEditProject(project.id)} aria-label="Edit project" disabled={!supabase}>
+                          <Button variant="ghost" size="icon" onClick={() => handleEditProject(project.id)} aria-label="Edit project" disabled={!supabase || isLoading}>
                               <Edit3 className="h-4 w-4" />
                           </Button>
-                          <Button variant="ghost" size="icon" className="text-destructive hover:text-destructive" onClick={() => handleDeleteProject(project.id)} aria-label="Delete project" disabled={!supabase}>
+                          <Button variant="ghost" size="icon" className="text-destructive hover:text-destructive" onClick={() => handleDeleteProject(project.id)} aria-label="Delete project" disabled={!supabase || isLoading}>
                               <Trash2 className="h-4 w-4" />
                           </Button>
                       </div>
