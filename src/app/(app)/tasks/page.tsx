@@ -11,7 +11,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Badge } from '@/components/ui/badge';
 import { PlusCircle, Search, Edit3, Trash2, Eye, Loader2, AlertTriangle } from 'lucide-react';
-import { format, parseISO } from 'date-fns'; // Added parseISO
+import { format, parseISO } from 'date-fns';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { supabase } from '@/lib/supabaseClient';
 import { useToast } from '@/hooks/use-toast';
@@ -31,10 +31,10 @@ export default function TasksPage() {
   const [projectsForFilter, setProjectsForFilter] = useState<Pick<Project, 'id' | 'name'>[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [assigneeNames, setAssigneeNames] = useState<Record<string, string>>({});
+  const [assigneeDetailsMap, setAssigneeDetailsMap] = useState<Record<string, { name: string }>>({});
 
 
-  const fetchTasksAndProjects = useCallback(async () => {
+  const fetchTasksAndRelatedData = useCallback(async () => {
     if (authLoading || !currentUser || !supabase) {
       setIsLoading(false);
       if (!authLoading && !currentUser) setError("User not authenticated.");
@@ -46,7 +46,6 @@ export default function TasksPage() {
     setError(null);
 
     try {
-      // Fetch projects for the filter dropdown (only if admin)
       if (isAdmin) {
         const { data: projectData, error: projectError } = await supabase
           .from('projects')
@@ -56,14 +55,13 @@ export default function TasksPage() {
         setProjectsForFilter(projectData || []);
       }
 
-      // Build tasks query
       let query = supabase
         .from('tasks')
-        .select('id, title, description, due_date, created_at, assignee_id, project_id, priority, status, user_id, project:projects!inner(name)')
+        .select('id, title, description, due_date, created_at, assignee_ids, project_id, priority, status, user_id, project:projects!inner(name)')
         .order('created_at', { ascending: false });
 
       if (!isAdmin && currentUser?.id) {
-        query = query.eq('assignee_id', currentUser.id);
+        query = query.filter('assignee_ids', 'cs', `{${currentUser.id}}`); // Use contains for array
       }
       if (statusFilter !== 'all') {
         query = query.eq('status', statusFilter);
@@ -71,7 +69,7 @@ export default function TasksPage() {
       if (priorityFilter !== 'all') {
         query = query.eq('priority', priorityFilter);
       }
-      if (projectFilter !== 'all' && isAdmin) { 
+      if (projectFilter !== 'all' && isAdmin) {
         query = query.eq('project_id', projectFilter);
       }
       if (searchTerm) {
@@ -88,8 +86,7 @@ export default function TasksPage() {
         description: task.description,
         dueDate: task.due_date,
         createdAt: task.created_at,
-        assignee_id: task.assignee_id,
-        assigneeName: task.assignee_id === currentUser?.id ? currentUser.name : (task.assignee_id ? 'Loading...' : 'Unassigned'),
+        assignee_ids: task.assignee_ids || [], // Ensure it's an array
         projectId: task.project_id,
         projectName: task.project?.name || 'N/A',
         priority: task.priority as TaskPriority,
@@ -98,25 +95,20 @@ export default function TasksPage() {
       })) || [];
       setTasks(mappedTasks);
 
-      // If admin, fetch assignee names for all tasks
       if (isAdmin && mappedTasks.length > 0) {
-        const assigneeIdsToFetch = [...new Set(mappedTasks.map(t => t.assignee_id).filter(id => id))] as string[];
-        if (assigneeIdsToFetch.length > 0) {
+        const allAssigneeIds = [...new Set(mappedTasks.flatMap(t => t.assignee_ids || []).filter(id => id))] as string[];
+        if (allAssigneeIds.length > 0) {
           const { data: profilesData, error: profilesError } = await supabase
             .from('profiles')
             .select('id, full_name')
-            .in('id', assigneeIdsToFetch);
+            .in('id', allAssigneeIds);
           
           if (profilesError) {
             console.error('TasksPage: Error fetching assignee names:', profilesError);
           } else {
-            const namesMap: Record<string, string> = {};
-            profilesData?.forEach(p => { namesMap[p.id] = p.full_name || 'N/A'; });
-            setAssigneeNames(namesMap);
-             setTasks(prevTasks => prevTasks.map(t => ({
-                ...t,
-                assigneeName: t.assignee_id ? (namesMap[t.assignee_id] || 'N/A') : 'Unassigned'
-            })));
+            const namesMap: Record<string, { name: string }> = {};
+            profilesData?.forEach(p => { namesMap[p.id] = { name: p.full_name || 'N/A' }; });
+            setAssigneeDetailsMap(namesMap);
           }
         }
       }
@@ -133,9 +125,9 @@ export default function TasksPage() {
 
   useEffect(() => {
     if (!authLoading) {
-        fetchTasksAndProjects();
+        fetchTasksAndRelatedData();
     }
-  }, [authLoading, fetchTasksAndProjects]);
+  }, [authLoading, fetchTasksAndRelatedData]);
 
 
   const getStatusVariant = (status?: Task['status']): "default" | "secondary" | "destructive" | "outline" => {
@@ -168,16 +160,19 @@ export default function TasksPage() {
             const { error: deleteError } = await supabase.from('tasks').delete().match({ id: taskId });
             if (deleteError) throw deleteError;
             toast({ title: "Task Deleted", description: `Task ${taskId} has been deleted.` });
-            fetchTasksAndProjects(); 
+            fetchTasksAndRelatedData(); 
         } catch (e: any) {
             toast({ title: "Error Deleting Task", description: e.message || "Could not delete task.", variant: "destructive" });
         } finally {
-            // Set a brief loading state for the whole page might be too much,
-            // consider a specific "isDeleting" state for the row or button if UX needs refinement.
-            // For now, rely on the main isLoading state being managed by fetchTasksAndProjects.
-            if (isLoading) setIsLoading(false); // Ensure loading is false if delete was the only action
+            if (isLoading) setIsLoading(false);
         }
     }
+  };
+
+  const displayAssignees = (assigneeIds?: string[] | null) => {
+    if (!assigneeIds || assigneeIds.length === 0) return 'Unassigned';
+    if (assigneeIds.length === 1) return assigneeDetailsMap[assigneeIds[0]]?.name || 'Loading...';
+    return `${assigneeIds.length} Assignees`;
   };
 
 
@@ -265,7 +260,7 @@ export default function TasksPage() {
               <AlertTriangle className="h-8 w-8 mb-2" />
               <p className="font-semibold">Error Loading Tasks</p>
               <p className="text-sm">{error}</p>
-              <Button variant="outline" size="sm" className="mt-4" onClick={fetchTasksAndProjects} disabled={!supabase}>
+              <Button variant="outline" size="sm" className="mt-4" onClick={fetchTasksAndRelatedData} disabled={!supabase}>
                 Try Again
               </Button>
             </div>
@@ -278,7 +273,7 @@ export default function TasksPage() {
               <TableHeader>
                 <TableRow>
                   <TableHead>Title</TableHead>
-                  {isAdmin && <TableHead>Assignee</TableHead>}
+                  {isAdmin && <TableHead>Assignees</TableHead>}
                   <TableHead>Project</TableHead>
                   <TableHead>Due Date</TableHead>
                   <TableHead>Priority</TableHead>
@@ -292,7 +287,7 @@ export default function TasksPage() {
                     <TableCell className="font-medium max-w-xs truncate">
                       <Link href={`/tasks/${task.id}`} className="hover:underline text-primary">{task.title}</Link>
                     </TableCell>
-                    {isAdmin && <TableCell>{task.assigneeName || 'Unassigned'}</TableCell>}
+                    {isAdmin && <TableCell>{displayAssignees(task.assignee_ids)}</TableCell>}
                     <TableCell>{task.projectName || 'N/A'}</TableCell>
                     <TableCell>{task.dueDate ? format(parseISO(task.dueDate), 'MMM d, yyyy') : 'N/A'}</TableCell>
                     <TableCell><Badge variant={getPriorityVariant(task.priority)} className="capitalize">{task.priority}</Badge></TableCell>
