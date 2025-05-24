@@ -61,7 +61,7 @@ export default function TasksPage() {
         .order('created_at', { ascending: false });
 
       if (!isAdmin && currentUser?.id) {
-        query = query.eq('assignee_id', currentUser.id); 
+        query = query.eq('assignee_id', currentUser.id);
       }
       if (statusFilter !== 'all') {
         query = query.eq('status', statusFilter);
@@ -86,7 +86,7 @@ export default function TasksPage() {
         description: task.description,
         dueDate: task.due_date,
         createdAt: task.created_at,
-        assignee_id: task.assignee_id, 
+        assignee_id: task.assignee_id,
         projectId: task.project_id,
         projectName: task.project?.name || 'N/A',
         priority: task.priority as TaskPriority,
@@ -105,7 +105,6 @@ export default function TasksPage() {
           
           if (profilesError) {
             console.error('TasksPage: Error fetching assignee names:', profilesError);
-            // Decide if this is critical enough to throw or just warn
           } else {
             const namesMap: Record<string, { name: string }> = {};
             profilesData?.forEach(p => { namesMap[p.id] = { name: p.full_name || 'N/A' }; });
@@ -113,7 +112,6 @@ export default function TasksPage() {
           }
         }
       }
-
 
     } catch (e: any) {
       const supabaseErrorCode = e?.code;
@@ -126,14 +124,12 @@ export default function TasksPage() {
         displayMessage = supabaseErrorMessage;
       } else if (supabaseErrorDetails) {
         displayMessage = supabaseErrorDetails;
-      } else if (typeof e === 'object' && e !== null) {
+      } else {
         try {
           displayMessage = JSON.stringify(e); 
         } catch (stringifyError) {
           displayMessage = String(e); 
         }
-      } else if (e) {
-        displayMessage = String(e);
       }
       
       console.error(
@@ -179,19 +175,41 @@ export default function TasksPage() {
         return;
     }
     if (confirm(`Are you sure you want to delete task ${taskId}? This action cannot be undone.`)) {
+        setIsLoading(true); // Set loading true for the delete operation
         try {
-            setIsLoading(true); 
             const { error: deleteError } = await supabase.from('tasks').delete().match({ id: taskId });
+            
             if (deleteError) throw deleteError;
+
             toast({ title: "Task Deleted", description: `Task ${taskId} has been deleted.` });
-            fetchTasksAndRelatedData(); 
+            fetchTasksAndRelatedData(); // Refresh the list
         } catch (e: any) {
-            const displayMessage = e.message || e.details || "Could not delete task.";
+            const supabaseErrorCode = e?.code;
+            const supabaseErrorMessage = e?.message;
+            const supabaseErrorDetails = e?.details;
+            const supabaseErrorHint = e?.hint;
+
+            let displayMessage = 'Could not delete task.';
+            if (supabaseErrorMessage) {
+              displayMessage = supabaseErrorMessage;
+            } else if (supabaseErrorDetails) {
+              displayMessage = supabaseErrorDetails;
+            } else {
+              try {
+                displayMessage = JSON.stringify(e); 
+              } catch (stringifyError) {
+                displayMessage = String(e); 
+              }
+            }
+            
+            console.error(
+              `TasksPage: Error deleting task ${taskId}. Supabase Code: ${supabaseErrorCode}, Message: ${supabaseErrorMessage}, Details: ${supabaseErrorDetails}, Hint: ${supabaseErrorHint}. Processed display message: ${displayMessage}`, e
+            );
+            console.error(`TasksPage: Full error object for delete task ${taskId}:`, e);
+            
             toast({ title: "Error Deleting Task", description: displayMessage, variant: "destructive" });
         } finally {
-            // Ensure isLoading is set to false regardless of path, but only if it was set to true for this operation
-            // This global isLoading might be better managed with more granular loading states per action
-            setIsLoading(false); 
+            setIsLoading(false); // Set loading false after the operation
         }
     }
   };
@@ -213,6 +231,8 @@ export default function TasksPage() {
 
 
   if (!currentUser && !isLoading) { 
+      // This check might be redundant if layout already handles redirect, but good for direct page access attempts
+      // router.push('/auth/login'); // Consider if this is needed or if layout handles it
       return <p>Redirecting to login...</p>;
   }
 
@@ -356,4 +376,3 @@ export default function TasksPage() {
     </div>
   );
 }
-
