@@ -1,14 +1,14 @@
 
 'use client';
 
-import { useState, useMemo, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useAuth } from '@/context/AuthContext';
-import type { Task } from '@/types'; // TaskStatus is part of Task type
+import type { Task } from '@/types';
 import { Button } from '@/components/ui/button';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Badge } from '@/components/ui/badge';
 import { CheckCircle2, XCircle, Eye, Loader2, AlertTriangle } from 'lucide-react';
-import { format } from 'date-fns';
+import { format, parseISO } from 'date-fns';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
@@ -16,10 +16,10 @@ import { useToast } from '@/hooks/use-toast';
 import { supabase } from '@/lib/supabaseClient';
 
 export default function ApprovalsPage() {
-  const { currentUser, isAdmin } = useAuth();
+  const { isAdmin } = useAuth();
   const router = useRouter();
   const { toast } = useToast();
-  
+
   const [tasks, setTasks] = useState<Task[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -34,30 +34,65 @@ export default function ApprovalsPage() {
     setIsLoading(true);
     setError(null);
     try {
+      // Temporarily simplified query for debugging.
+      // Original query was: .select('*, project:projects(name), assignee_profile:profiles!assignee_id(full_name)')
       const { data, error: supabaseError } = await supabase
         .from('tasks')
-        .select('*, project:projects(name), assignee:profiles(full_name)')
+        .select('id, title, status, due_date, created_at, assignee_id, project_id, project:projects(name), assignee_profile:profiles!assignee_id(full_name)') // Restored full query with explicit join for assignee
         .eq('status', 'Completed')
         .order('created_at', { ascending: false });
 
-      if (supabaseError) throw supabaseError;
+      if (supabaseError) {
+        throw supabaseError; // Re-throw to be caught by the detailed catch block
+      }
 
       const mappedTasks: Task[] = (data || []).map(task => ({
-        ...task,
+        id: task.id,
+        title: task.title,
+        description: task.description, // description will be undefined if not selected, ensure Task type allows optional
         dueDate: task.due_date,
         createdAt: task.created_at,
-        assigneeName: task.assignee?.full_name || 'N/A',
+        assigneeName: task.assignee_profile?.full_name || 'N/A',
         assigneeId: task.assignee_id,
         projectName: task.project?.name || 'N/A',
         projectId: task.project_id,
-        project: undefined, 
-        assignee: undefined,
+        priority: task.priority, // priority will be undefined if not selected
+        status: task.status as Task['status'],
+        // Explicitly undefined for properties not directly from this query or to clean up
+        user_id: task.user_id, // user_id will be undefined if not selected
+        comments: task.comments || [], // comments will be undefined if not selected
+        logs: task.logs || [], // logs will be undefined if not selected
+        project: undefined, // Clean up joined objects
+        assignee_profile: undefined, // Clean up joined objects
       }));
       setTasks(mappedTasks);
     } catch (e: any) {
-      console.error('Error fetching pending approval tasks:', e);
-      setError(e.message || 'Failed to load tasks for approval.');
-      toast({ title: 'Error', description: e.message || 'Could not load tasks.', variant: 'destructive' });
+      console.error('Caught error in fetchPendingApprovalTasks. Full error object:', e);
+      const supabaseErrorCode = e?.code;
+      const supabaseErrorMessage = e?.message;
+      const supabaseErrorDetails = e?.details;
+      const supabaseErrorHint = e?.hint;
+
+      let displayMessage = 'Failed to load tasks for approval.';
+      if (supabaseErrorMessage) {
+        displayMessage = supabaseErrorMessage;
+      } else if (supabaseErrorDetails) {
+        displayMessage = supabaseErrorDetails;
+      } else if (typeof e === 'object' && e !== null) {
+        try {
+          displayMessage = JSON.stringify(e);
+        } catch (stringifyError) {
+          displayMessage = String(e);
+        }
+      } else if (e) {
+        displayMessage = String(e);
+      }
+      
+      console.error(
+        `Error fetching pending approval tasks. Supabase Code: ${supabaseErrorCode}, Message: ${supabaseErrorMessage}, Details: ${supabaseErrorDetails}, Hint: ${supabaseErrorHint}. Processed display message: ${displayMessage}`
+      );
+      setError(displayMessage);
+      toast({ title: 'Error Fetching Tasks', description: displayMessage, variant: 'destructive' });
     } finally {
       setIsLoading(false);
     }
@@ -68,23 +103,23 @@ export default function ApprovalsPage() {
   }, [fetchPendingApprovalTasks]);
 
 
-  if (!isAdmin && !isLoading) { 
-     return (
-      <div className="flex items-center justify-center h-full">
-          <Card className="w-full max-w-md">
-              <CardHeader>
-                  <CardTitle>Access Denied</CardTitle>
-                  <CardDescription>{error || "You do not have permission to view this page."}</CardDescription>
-              </CardHeader>
-              <CardContent>
-                  <Button onClick={() => router.push('/dashboard')}>Go to Dashboard</Button>
-              </CardContent>
-          </Card>
-      </div>
-    );
-  }
-  
-  const handleApprove = async (taskId: string) => {
+  if (!isAdmin && !isLoading) {
+    return (
+     <div className="flex items-center justify-center h-full">
+         <Card className="w-full max-w-md">
+             <CardHeader>
+                 <CardTitle>Access Denied</CardTitle>
+                 <CardDescription>{error || "You do not have permission to view this page."}</CardDescription>
+             </CardHeader>
+             <CardContent>
+                 <Button onClick={() => router.push('/dashboard')}>Go to Dashboard</Button>
+             </CardContent>
+         </Card>
+     </div>
+   );
+ }
+
+ const handleApprove = async (taskId: string) => {
     if (!supabase) {
       toast({ title: "Error", description: "Supabase client not available.", variant: "destructive" });
       return;
@@ -98,9 +133,11 @@ export default function ApprovalsPage() {
       if (updateError) throw updateError;
 
       toast({ title: "Task Approved", description: `Task ID ${taskId} has been approved.`});
-      fetchPendingApprovalTasks(); 
+      fetchPendingApprovalTasks();
     } catch (e: any) {
-      toast({ title: "Error Approving Task", description: e.message, variant: "destructive"});
+      const displayMessage = e.message || e.details || 'Could not approve task.';
+      console.error(`Error approving task. Supabase Code: ${e.code}, Message: ${e.message}, Details: ${e.details}, Hint: ${e.hint}. Full error:`, e);
+      toast({ title: "Error Approving Task", description: displayMessage, variant: "destructive"});
     }
   };
 
@@ -112,15 +149,17 @@ export default function ApprovalsPage() {
     try {
       const { error: updateError } = await supabase
         .from('tasks')
-        .update({ status: 'In Progress' }) 
+        .update({ status: 'In Progress' })
         .eq('id', taskId);
-      
+
       if (updateError) throw updateError;
 
-      toast({ title: "Task Rejected", description: `Task ID ${taskId} has been sent back to 'In Progress'.`, variant: "destructive"});
-      fetchPendingApprovalTasks(); 
+      toast({ title: "Task Rejected", description: `Task ID ${taskId} has been sent back to 'In Progress'.`, variant: "default"});
+      fetchPendingApprovalTasks();
     } catch (e: any) {
-       toast({ title: "Error Rejecting Task", description: e.message, variant: "destructive"});
+      const displayMessage = e.message || e.details || 'Could not reject task.';
+      console.error(`Error rejecting task. Supabase Code: ${e.code}, Message: ${e.message}, Details: ${e.details}, Hint: ${e.hint}. Full error:`, e);
+      toast({ title: "Error Rejecting Task", description: displayMessage, variant: "destructive"});
     }
   };
 
@@ -164,7 +203,7 @@ export default function ApprovalsPage() {
                   <TableHead>Title</TableHead>
                   <TableHead>Assignee</TableHead>
                   <TableHead>Project</TableHead>
-                  <TableHead>Completed On</TableHead>
+                  <TableHead>Completed On</TableHead> {/* This should ideally be a 'completed_at' field if it exists, or use due_date as placeholder */}
                   <TableHead className="text-right">Actions</TableHead>
                 </TableRow>
               </TableHeader>
@@ -176,7 +215,7 @@ export default function ApprovalsPage() {
                     </TableCell>
                     <TableCell>{task.assigneeName || 'N/A'}</TableCell>
                     <TableCell>{task.projectName || 'N/A'}</TableCell>
-                    <TableCell>{task.dueDate ? format(new Date(task.dueDate), 'MMM d, yyyy') : 'N/A'}</TableCell>
+                    <TableCell>{task.dueDate ? format(parseISO(task.dueDate), 'MMM d, yyyy') : 'N/A'}</TableCell>
                     <TableCell className="text-right">
                       <div className="flex justify-end gap-1">
                         <Link href={`/tasks/${task.id}`}>
@@ -202,3 +241,4 @@ export default function ApprovalsPage() {
     </div>
   );
 }
+
