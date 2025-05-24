@@ -3,12 +3,12 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { useAuth } from '@/context/AuthContext';
-import type { Project, ProjectStatus } from '@/types'; // Import ProjectStatus
+import type { Project, ProjectStatus } from '@/types';
 import { Button } from '@/components/ui/button';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { PlusCircle, Edit3, Trash2, FolderKanban, Loader2, AlertTriangle } from 'lucide-react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { Badge } from '@/components/ui/badge'; // Import Badge
+import { Badge } from '@/components/ui/badge';
 import { useRouter } from 'next/navigation';
 import { supabase } from '@/lib/supabaseClient';
 import { useToast } from '@/hooks/use-toast';
@@ -34,7 +34,7 @@ export default function ProjectManagementPage() {
     try {
       const { data, error: supabaseError } = await supabase
         .from('projects')
-        .select('id, name, description, created_at, user_id, status') // Added status
+        .select('id, name, description, created_at, user_id, status')
         .order('created_at', { ascending: false });
 
       if (supabaseError) {
@@ -99,10 +99,7 @@ export default function ProjectManagementPage() {
       });
       return;
     }
-     toast({
-      title: "Edit Project (Not Implemented)",
-      description: `Functionality to edit project ${projectId} is not yet implemented.`
-    });
+    router.push(`/admin/projects/edit/${projectId}`);
   };
 
   const handleDeleteProject = async (projectId: string) => {
@@ -117,6 +114,25 @@ export default function ProjectManagementPage() {
     if (confirm(`Are you sure you want to delete project with ID: ${projectId}? This action cannot be undone.`)) {
        setIsLoading(true);
        try {
+        // Also delete related tasks or handle them (e.g., set project_id to null if allowed)
+        // For now, we assume cascade delete handles tasks if setup in DB, or tasks become orphaned.
+        const { error: tasksDeleteError } = await supabase
+          .from('tasks')
+          .delete()
+          .match({ project_id: projectId });
+
+        if (tasksDeleteError) {
+          console.warn('Partial delete: Error deleting tasks for project', projectId, tasksDeleteError)
+          // Decide if you want to proceed with project deletion if tasks can't be deleted
+          // For this example, we'll show a warning but proceed.
+           toast({
+            title: "Warning: Tasks Deletion Issue",
+            description: `Could not delete all tasks for project ${projectId}. Project deletion will proceed. Error: ${tasksDeleteError.message}`,
+            variant: "default",
+            duration: 7000,
+          });
+        }
+
         const { error: deleteError } = await supabase
             .from('projects')
             .delete()
@@ -135,6 +151,7 @@ export default function ProjectManagementPage() {
          });
        } finally {
          setIsLoading(false);
+         fetchProjects(); // Refresh list
        }
     }
   };
@@ -142,7 +159,7 @@ export default function ProjectManagementPage() {
   const getStatusBadgeVariant = (status?: ProjectStatus) => {
     switch (status) {
       case 'In Progress': return 'default';
-      case 'Completed': return 'secondary'; // You might want a 'success' variant later
+      case 'Completed': return 'secondary'; 
       case 'On Hold': return 'outline';
       case 'Cancelled': return 'destructive';
       default: return 'secondary';
@@ -153,7 +170,7 @@ export default function ProjectManagementPage() {
     <div className="space-y-6">
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center">
         <div className="mb-4 sm:mb-0">
-          <h1 className="text-3xl font-bold tracking-tight">Project Management</h1>
+          <h1 className="text-3xl font-bold tracking-tight">Projects</h1>
           <p className="text-muted-foreground">Manage all projects within TaskFlow AI.</p>
         </div>
         <Button onClick={handleCreateProject} disabled={!supabase || isLoading} className="w-full sm:w-auto">
@@ -191,7 +208,7 @@ export default function ProjectManagementPage() {
                   <TableRow>
                     <TableHead>Name</TableHead>
                     <TableHead>Description</TableHead>
-                    <TableHead>Status</TableHead> {/* New Status Column Header */}
+                    <TableHead>Status</TableHead>
                     <TableHead>Created At</TableHead>
                     <TableHead className="text-right">Actions</TableHead>
                   </TableRow>
@@ -204,7 +221,7 @@ export default function ProjectManagementPage() {
                         {project.name}
                       </TableCell>
                       <TableCell className="text-muted-foreground max-w-xs sm:max-w-md md:max-w-lg truncate">{project.description || 'No description'}</TableCell>
-                      <TableCell> {/* New Status Cell */}
+                      <TableCell>
                         <Badge variant={getStatusBadgeVariant(project.status)} className="capitalize">
                           {project.status || 'N/A'}
                         </Badge>
