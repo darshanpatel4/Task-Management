@@ -19,6 +19,8 @@ import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Calendar } from '@/components/ui/calendar';
+import { Checkbox } from '@/components/ui/checkbox';
+import { ScrollArea } from '@/components/ui/scroll-area';
 import { CalendarIcon, Loader2, AlertTriangle, Users } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { format } from 'date-fns';
@@ -33,12 +35,11 @@ import { useEffect, useState } from 'react';
 const taskPriorities: TaskPriority[] = ['Low', 'Medium', 'High'];
 const userSettableTaskStatuses: TaskStatus[] = ['Pending', 'In Progress'];
 
-const UNASSIGNED_VALUE = "_UNASSIGNED_"; // Special value for "Unassigned" option
 
 const formSchema = z.object({
   title: z.string().min(3, { message: 'Title must be at least 3 characters.' }),
   description: z.string().min(10, { message: 'Description must be at least 10 characters.' }),
-  assignee_id: z.string().optional().nullable(), // Single user ID, optional
+  assignee_ids: z.array(z.string()).optional(), // Array of user IDs, optional
   dueDate: z.date({ required_error: 'Due date is required.' }),
   priority: z.enum(taskPriorities),
   project_id: z.string({ required_error: 'Project is required.' }),
@@ -65,7 +66,9 @@ export default function CreateTaskPage() {
       description: '',
       priority: 'Medium',
       status: 'Pending',
-      assignee_id: null, 
+      assignee_ids: [], // Initialize as an empty array
+      project_id: undefined, // Or an empty string if your Select handles it
+      // dueDate will be undefined by default, handled by Calendar
     },
   });
 
@@ -95,10 +98,10 @@ export default function CreateTaskPage() {
 
       } catch (error: any) {
         console.error('CreateTaskPage: Error fetching users or projects:', error);
-        setDataError('Failed to load necessary data. ' + error.message);
+        setDataError('Failed to load necessary data. ' + (error.message || 'Unknown error'));
         toast({
           title: 'Error Loading Data',
-          description: 'Could not load users or projects. Please try again later.',
+          description: 'Could not load users or projects. Please try again later. ' + (error.message || ''),
           variant: 'destructive',
         });
       } finally {
@@ -109,7 +112,7 @@ export default function CreateTaskPage() {
   }, [isAdmin, toast]);
 
 
-  if (!isAdmin && !isLoadingData && dataError) {
+  if (!isAdmin && !isLoadingData && dataError?.includes("Access Denied")) {
     return (
         <div className="flex items-center justify-center h-full">
             <Card className="w-full max-w-md">
@@ -157,7 +160,7 @@ export default function CreateTaskPage() {
       const taskToInsert = {
         title: values.title,
         description: values.description,
-        assignee_id: values.assignee_id === UNASSIGNED_VALUE ? null : values.assignee_id, // Handle Unassigned
+        assignee_ids: values.assignee_ids && values.assignee_ids.length > 0 ? values.assignee_ids : null, // Send null if empty
         due_date: values.dueDate.toISOString(),
         priority: values.priority,
         project_id: values.project_id,
@@ -237,30 +240,47 @@ export default function CreateTaskPage() {
               />
               <FormField
                 control={form.control}
-                name="assignee_id"
+                name="assignee_ids"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel className="flex items-center"><Users className="mr-2 h-4 w-4 text-muted-foreground" />Assignee</FormLabel>
-                    <Select
-                      onValueChange={(value) => field.onChange(value === UNASSIGNED_VALUE ? null : value)}
-                      value={field.value === null ? UNASSIGNED_VALUE : field.value || undefined}
-                      disabled={allUsers.length === 0}
-                    >
-                      <FormControl>
-                        <SelectTrigger>
-                          <SelectValue placeholder="Select an assignee" />
-                        </SelectTrigger>
-                      </FormControl>
-                      <SelectContent>
-                        <SelectItem value={UNASSIGNED_VALUE}>Unassigned</SelectItem>
+                    <FormLabel className="flex items-center">
+                      <Users className="mr-2 h-4 w-4 text-muted-foreground" />
+                      Assignees
+                    </FormLabel>
+                    <FormControl>
+                      <ScrollArea className="h-40 w-full rounded-md border p-2">
                         {allUsers.map((user) => (
-                          <SelectItem key={user.id} value={user.id}>
-                            {user.name}
-                          </SelectItem>
+                          <div key={user.id} className="flex items-center space-x-2 py-1">
+                            <Checkbox
+                              id={`assignee-${user.id}`}
+                              checked={(field.value || []).includes(user.id)}
+                              onCheckedChange={(checked) => {
+                                const currentAssignees = field.value || [];
+                                let newAssigneeIds;
+                                if (checked) {
+                                  newAssigneeIds = [...currentAssignees, user.id];
+                                } else {
+                                  newAssigneeIds = currentAssignees.filter(
+                                    (id) => id !== user.id
+                                  );
+                                }
+                                field.onChange(newAssigneeIds); // Always pass an array
+                              }}
+                            />
+                            <label
+                              htmlFor={`assignee-${user.id}`}
+                              className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70"
+                            >
+                              {user.name}
+                            </label>
+                          </div>
                         ))}
-                      </SelectContent>
-                    </Select>
-                    <FormDescription>Select a user to assign to this task.</FormDescription>
+                        {allUsers.length === 0 && (
+                          <p className="text-sm text-muted-foreground">No users available to assign.</p>
+                        )}
+                      </ScrollArea>
+                    </FormControl>
+                    <FormDescription>Select one or more users to assign to this task.</FormDescription>
                     <FormMessage />
                   </FormItem>
                 )}
@@ -363,3 +383,4 @@ export default function CreateTaskPage() {
     </Card>
   );
 }
+
