@@ -9,7 +9,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import Link from 'next/link';
 import { ArrowRight, Users, ListChecks, CheckCircle2, FolderKanban, Loader2, AlertTriangle } from 'lucide-react';
-import { format } from 'date-fns';
+import { format, parseISO } from 'date-fns'; // Ensure parseISO is imported
 import { supabase } from '@/lib/supabaseClient';
 import { useToast } from '@/hooks/use-toast';
 import { useRouter, usePathname } from 'next/navigation';
@@ -22,10 +22,10 @@ interface DashboardStats {
 }
 
 export default function DashboardPage() {
-  const { currentUser, isAdmin, loading: authLoading } = useAuth(); // Renamed loading to authLoading
+  const { currentUser, isAdmin, loading: authLoading } = useAuth();
   const { toast } = useToast();
-  const router = useRouter();
-  const pathname = usePathname();
+  const router = useRouter(); // Defined for potential use
+  const pathname = usePathname(); // Defined for potential use
 
   const [stats, setStats] = useState<DashboardStats | null>(null);
   const [displayedTasks, setDisplayedTasks] = useState<Task[]>([]);
@@ -41,7 +41,6 @@ export default function DashboardPage() {
       setIsLoadingStats(false);
       setIsLoadingTasks(false);
       if (!authLoading && !currentUser && !pathname.startsWith('/auth')) {
-        // This should be handled by AppLayout, but as a fallback:
         router.push('/auth/login');
       }
       return;
@@ -110,24 +109,22 @@ export default function DashboardPage() {
         id: task.id,
         title: task.title,
         description: task.description,
-        dueDate: task.due_date,
-        createdAt: task.created_at,
+        dueDate: task.due_date, // Keep as string from DB
+        createdAt: task.created_at, // Keep as string from DB
         assignee_id: task.assignee_id,
-        // Assignee name will be fetched/set separately for admins
         assigneeName: task.assignee_id === currentUser?.id ? currentUser.name : (task.assignee_id ? 'Loading...' : 'Unassigned'),
         projectId: task.project_id,
         projectName: task.project?.name || 'N/A',
         priority: task.priority as TaskPriority,
         status: task.status as TaskStatus,
         user_id: task.user_id,
-        comments: task.comments,
-        logs: task.logs,
+        comments: task.comments || [], // Ensure comments/logs are arrays
+        logs: task.logs || [],
       })) || [];
       
       console.log("Dashboard: Tasks mapped.", { count: mappedTasks.length });
       setDisplayedTasks(mappedTasks);
 
-      // If admin, fetch assignee names for the displayed tasks
       if (isAdmin && mappedTasks.length > 0) {
         const assigneeIdsToFetch = [...new Set(mappedTasks.map(t => t.assignee_id).filter(id => id))] as string[];
         if (assigneeIdsToFetch.length > 0) {
@@ -142,7 +139,6 @@ export default function DashboardPage() {
             const namesMap: Record<string, string> = {};
             profilesData?.forEach(p => { namesMap[p.id] = p.full_name || 'N/A'; });
             setAssigneeNames(namesMap);
-            // Update tasks with fetched names
             setDisplayedTasks(prevTasks => prevTasks.map(t => ({
                 ...t,
                 assigneeName: t.assignee_id ? (namesMap[t.assignee_id] || 'N/A') : 'Unassigned'
@@ -150,7 +146,6 @@ export default function DashboardPage() {
           }
         }
       }
-
 
     } catch (e: any) {
       console.error('Dashboard: Overall fetch error:', e);
@@ -164,7 +159,7 @@ export default function DashboardPage() {
   }, [currentUser, isAdmin, toast, router, pathname, authLoading]); 
 
   useEffect(() => {
-    if (!authLoading) { // Only fetch if auth state is resolved
+    if (!authLoading) {
         fetchDashboardData();
     }
   }, [authLoading, fetchDashboardData]);
@@ -190,7 +185,7 @@ export default function DashboardPage() {
   };
 
 
-  if (authLoading || (isLoadingStats && isAdmin) || isLoadingTasks) { // Check isLoadingStats only for admin
+  if (authLoading || (isLoadingStats && isAdmin) || isLoadingTasks) {
     return (
       <div className="flex justify-center items-center h-64">
         <Loader2 className="h-12 w-12 animate-spin text-primary" />
@@ -211,15 +206,12 @@ export default function DashboardPage() {
   }
   
   if (!authLoading && !currentUser && !pathname.startsWith('/auth')) { 
-    // This case should ideally be handled by AppLayout's auth guard.
-    // router.push('/auth/login'); // Handled by AppLayout
     return <p>Redirecting to login...</p>;
   }
   
   if (!currentUser) { 
     return <p>Please log in to view the dashboard.</p>;
   }
-
 
   return (
     <div className="space-y-8">
@@ -313,7 +305,14 @@ export default function DashboardPage() {
                     <p className="text-sm text-muted-foreground">
                       Project: {task.projectName || 'N/A'} - Due: {task.dueDate ? format(parseISO(task.dueDate), 'PPP') : 'N/A'}
                     </p>
-                    {isAdmin && <p className="text-xs text-muted-foreground">Assigned to: {task.assigneeName}</p>}
+                    {isAdmin && task.assignee_id && (
+                        <p className="text-xs text-muted-foreground">
+                            Assigned to: {assigneeNames[task.assignee_id] || task.assigneeName || 'N/A'}
+                        </p>
+                    )}
+                     {isAdmin && !task.assignee_id && (
+                        <p className="text-xs text-muted-foreground">Assigned to: Unassigned</p>
+                    )}
                   </div>
                   <div className="flex items-center gap-2">
                     <Badge variant={getPriorityVariant(task.priority)} className="capitalize">{task.priority}</Badge>
@@ -333,3 +332,5 @@ export default function DashboardPage() {
     </div>
   );
 }
+
+    
