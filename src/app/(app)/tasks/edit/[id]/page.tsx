@@ -19,8 +19,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Calendar } from '@/components/ui/calendar';
-import { Checkbox } from '@/components/ui/checkbox';
-import { ScrollArea } from '@/components/ui/scroll-area';
+// Removed Checkbox and ScrollArea imports as they are for multi-select
 import { CalendarIcon, Loader2, AlertTriangle, Users, Save } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { format, parseISO } from 'date-fns';
@@ -33,14 +32,13 @@ import { supabase } from '@/lib/supabaseClient';
 import { useEffect, useState, useCallback } from 'react';
 
 const taskPriorities: TaskPriority[] = ['Low', 'Medium', 'High'];
-// For editing, an admin might change to any status.
 const editableTaskStatuses: TaskStatus[] = ['Pending', 'In Progress', 'Completed', 'Approved'];
 
-
+// Updated schema for single assignee
 const editTaskFormSchema = z.object({
   title: z.string().min(3, { message: 'Title must be at least 3 characters.' }),
   description: z.string().min(10, { message: 'Description must be at least 10 characters.' }),
-  assignee_ids: z.array(z.string()).optional(),
+  assignee_id: z.string().nullable().optional(), // Single assignee ID, can be null or undefined
   dueDate: z.date({ required_error: 'Due date is required.' }),
   priority: z.enum(taskPriorities),
   project_id: z.string({ required_error: 'Project is required.' }),
@@ -68,7 +66,7 @@ export default function EditTaskPage() {
     defaultValues: {
       title: '',
       description: '',
-      assignee_ids: [],
+      assignee_id: null, // Default to null for single assignee
       priority: 'Medium',
       status: 'Pending',
       project_id: '',
@@ -92,7 +90,7 @@ export default function EditTaskPage() {
     setError(null);
     try {
       const [taskResponse, usersResponse, projectsResponse] = await Promise.all([
-        supabase.from('tasks').select('*').eq('id', taskId).single(),
+        supabase.from('tasks').select('*').eq('id', taskId).single(), // Fetches the single task
         supabase.from('profiles').select('id, full_name').order('full_name', { ascending: true }),
         supabase.from('projects').select('id, name').order('name', { ascending: true })
       ]);
@@ -104,7 +102,7 @@ export default function EditTaskPage() {
       if (usersResponse.error) throw usersResponse.error;
       if (projectsResponse.error) throw projectsResponse.error;
       
-      const fetchedTask = taskResponse.data as Task | null; // Explicitly type here
+      const fetchedTask = taskResponse.data as Task | null;
       setTask(fetchedTask);
       setAllUsers(usersResponse.data?.map(u => ({ id: u.id, name: u.full_name || 'Unnamed User' })) || []);
       setProjects(projectsResponse.data || []);
@@ -113,7 +111,7 @@ export default function EditTaskPage() {
         form.reset({
           title: fetchedTask.title || '',
           description: fetchedTask.description || '',
-          assignee_ids: fetchedTask.assignee_ids || [],
+          assignee_id: fetchedTask.assignee_id || null, // Use singular assignee_id
           dueDate: fetchedTask.dueDate ? parseISO(fetchedTask.dueDate) : new Date(),
           priority: fetchedTask.priority || 'Medium',
           project_id: fetchedTask.project_id || '',
@@ -197,7 +195,7 @@ export default function EditTaskPage() {
       const taskToUpdate = {
         title: values.title,
         description: values.description,
-        assignee_ids: values.assignee_ids && values.assignee_ids.length > 0 ? values.assignee_ids : null,
+        assignee_id: values.assignee_id || null, // Ensure null if no assignee is selected
         due_date: values.dueDate.toISOString(),
         priority: values.priority,
         project_id: values.project_id,
@@ -227,6 +225,7 @@ export default function EditTaskPage() {
         try {
           displayMessage = JSON.stringify(error);
         } catch (e) {
+          // If stringify fails, just use the string representation of the error
           displayMessage = String(error);
         }
       }
@@ -274,47 +273,33 @@ export default function EditTaskPage() {
               />
               <FormField
                 control={form.control}
-                name="assignee_ids"
+                name="assignee_id" 
                 render={({ field }) => (
                   <FormItem>
                     <FormLabel className="flex items-center">
                       <Users className="mr-2 h-4 w-4 text-muted-foreground" />
-                      Assignees
+                      Assignee
                     </FormLabel>
-                    <FormControl>
-                      <ScrollArea className="h-40 w-full rounded-md border p-2">
+                    <Select 
+                      onValueChange={(value) => field.onChange(value === '_UNASSIGNED_' ? null : value)} 
+                      value={field.value || '_UNASSIGNED_'} // Handle null value from form
+                      disabled={allUsers.length === 0}
+                    >
+                      <FormControl>
+                        <SelectTrigger>
+                          <SelectValue placeholder="Select an assignee" />
+                        </SelectTrigger>
+                      </FormControl>
+                      <SelectContent>
+                        <SelectItem value="_UNASSIGNED_">Unassigned</SelectItem>
                         {allUsers.map((user) => (
-                          <div key={user.id} className="flex items-center space-x-2 py-1">
-                            <Checkbox
-                              id={`assignee-${user.id}`}
-                              checked={(field.value || []).includes(user.id)}
-                              onCheckedChange={(checked) => {
-                                const currentAssignees = field.value || [];
-                                let newAssigneeIds;
-                                if (checked) {
-                                  newAssigneeIds = [...currentAssignees, user.id];
-                                } else {
-                                  newAssigneeIds = currentAssignees.filter(
-                                    (id) => id !== user.id
-                                  );
-                                }
-                                field.onChange(newAssigneeIds);
-                              }}
-                            />
-                            <label
-                              htmlFor={`assignee-${user.id}`}
-                              className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70"
-                            >
-                              {user.name}
-                            </label>
-                          </div>
+                          <SelectItem key={user.id} value={user.id}>
+                            {user.name}
+                          </SelectItem>
                         ))}
-                        {allUsers.length === 0 && (
-                          <p className="text-sm text-muted-foreground">No users available to assign.</p>
-                        )}
-                      </ScrollArea>
-                    </FormControl>
-                    <FormDescription>Select one or more users to assign to this task.</FormDescription>
+                      </SelectContent>
+                    </Select>
+                    <FormDescription>Select a user to assign to this task.</FormDescription>
                     <FormMessage />
                   </FormItem>
                 )}
