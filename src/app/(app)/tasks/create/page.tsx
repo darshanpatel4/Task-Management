@@ -8,6 +8,7 @@ import { Button } from '@/components/ui/button';
 import {
   Form,
   FormControl,
+  FormDescription,
   FormField,
   FormItem,
   FormLabel,
@@ -18,7 +19,9 @@ import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Calendar } from '@/components/ui/calendar';
-import { CalendarIcon, Loader2, AlertTriangle } from 'lucide-react';
+import { CalendarIcon, Loader2, AlertTriangle, Users } from 'lucide-react';
+import { Checkbox } from '@/components/ui/checkbox';
+import { ScrollArea } from '@/components/ui/scroll-area';
 import { cn } from '@/lib/utils';
 import { format } from 'date-fns';
 import { useAuth } from '@/context/AuthContext';
@@ -30,14 +33,12 @@ import { supabase } from '@/lib/supabaseClient';
 import { useEffect, useState } from 'react';
 
 const taskPriorities: TaskPriority[] = ['Low', 'Medium', 'High'];
-const userSettableTaskStatuses: TaskStatus[] = ['Pending', 'In Progress', 'Completed']; 
-
-const UNASSIGNED_SELECT_VALUE = "_UNASSIGNED_"; // Constant for the "Unassigned" SelectItem value
+const userSettableTaskStatuses: TaskStatus[] = ['Pending', 'In Progress']; // 'Completed' is set via task detail page action
 
 const formSchema = z.object({
   title: z.string().min(3, { message: 'Title must be at least 3 characters.' }),
   description: z.string().min(10, { message: 'Description must be at least 10 characters.' }),
-  assigneeId: z.string({ invalid_type_error: 'Assignee ID must be a string or null.' }).nullable(), // Can be unassigned
+  assigneeIds: z.array(z.string()).optional(), // Array of user IDs
   dueDate: z.date({ required_error: 'Due date is required.' }),
   priority: z.enum(taskPriorities),
   projectId: z.string({ required_error: 'Project is required.' }),
@@ -51,7 +52,7 @@ export default function CreateTaskPage() {
   const router = useRouter();
   const { toast } = useToast();
   
-  const [users, setUsers] = useState<Pick<User, 'id' | 'name'>[]>([]);
+  const [allUsers, setAllUsers] = useState<Pick<User, 'id' | 'name'>[]>([]);
   const [projects, setProjects] = useState<Pick<Project, 'id' | 'name'>[]>([]);
   const [isLoadingData, setIsLoadingData] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -64,7 +65,7 @@ export default function CreateTaskPage() {
       description: '',
       priority: 'Medium',
       status: 'Pending',
-      assigneeId: null, // Default to null for unassigned
+      assigneeIds: [], 
     },
   });
 
@@ -81,18 +82,19 @@ export default function CreateTaskPage() {
       setDataError(null);
       try {
         const [usersResponse, projectsResponse] = await Promise.all([
-          supabase.from('profiles').select('id, full_name'),
-          supabase.from('projects').select('id, name')
+          supabase.from('profiles').select('id, full_name').order('full_name', { ascending: true }),
+          supabase.from('projects').select('id, name').order('name', { ascending: true })
         ]);
 
         if (usersResponse.error) throw usersResponse.error;
         if (projectsResponse.error) throw projectsResponse.error;
-
-        setUsers(usersResponse.data?.map(u => ({ id: u.id, name: u.full_name || 'Unnamed User' })) || []);
+        
+        console.log("CreateTaskPage: Fetched users (for assignee dropdown) from Supabase:", usersResponse.data);
+        setAllUsers(usersResponse.data?.map(u => ({ id: u.id, name: u.full_name || 'Unnamed User' })) || []);
         setProjects(projectsResponse.data || []);
 
       } catch (error: any) {
-        console.error('Error fetching users or projects:', error);
+        console.error('CreateTaskPage: Error fetching users or projects:', error);
         setDataError('Failed to load necessary data. ' + error.message);
         toast({
           title: 'Error Loading Data',
@@ -155,7 +157,7 @@ export default function CreateTaskPage() {
       const taskToInsert = {
         title: values.title,
         description: values.description,
-        assignee_id: values.assigneeId, // This will be null if "Unassigned" was chosen
+        assignee_ids: values.assigneeIds && values.assigneeIds.length > 0 ? values.assigneeIds : null,
         due_date: values.dueDate.toISOString(),
         priority: values.priority,
         project_id: values.projectId,
@@ -233,35 +235,61 @@ export default function CreateTaskPage() {
                   </FormItem>
                 )}
               />
+              <FormField
+                control={form.control}
+                name="assigneeIds"
+                render={() => (
+                  <FormItem>
+                    <div className="mb-4">
+                      <FormLabel className="text-base flex items-center">
+                        <Users className="mr-2 h-4 w-4 text-muted-foreground" />
+                        Assignees
+                      </FormLabel>
+                      <FormDescription>
+                        Select one or more users to assign to this task.
+                      </FormDescription>
+                    </div>
+                    {allUsers.length === 0 ? <p className="text-muted-foreground">No users available to assign.</p> :
+                    <ScrollArea className="h-40 rounded-md border p-2">
+                      {allUsers.map((user) => (
+                        <FormField
+                          key={user.id}
+                          control={form.control}
+                          name="assigneeIds"
+                          render={({ field }) => {
+                            return (
+                              <FormItem
+                                key={user.id}
+                                className="flex flex-row items-start space-x-3 space-y-0 py-2"
+                              >
+                                <FormControl>
+                                  <Checkbox
+                                    checked={field.value?.includes(user.id)}
+                                    onCheckedChange={(checked) => {
+                                      return checked
+                                        ? field.onChange([...(field.value || []), user.id])
+                                        : field.onChange(
+                                            (field.value || []).filter(
+                                              (value) => value !== user.id
+                                            )
+                                          );
+                                    }}
+                                  />
+                                </FormControl>
+                                <FormLabel className="font-normal">
+                                  {user.name}
+                                </FormLabel>
+                              </FormItem>
+                            );
+                          }}
+                        />
+                      ))}
+                    </ScrollArea>}
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                <FormField
-                  control={form.control}
-                  name="assigneeId"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Assignee (Optional)</FormLabel>
-                      <Select 
-                        onValueChange={(value) => {
-                          if (value === UNASSIGNED_SELECT_VALUE) {
-                            field.onChange(null);
-                          } else {
-                            field.onChange(value);
-                          }
-                        }} 
-                        value={field.value === null ? UNASSIGNED_SELECT_VALUE : field.value}
-                      >
-                        <FormControl><SelectTrigger><SelectValue placeholder="Select an assignee" /></SelectTrigger></FormControl>
-                        <SelectContent>
-                          <SelectItem value={UNASSIGNED_SELECT_VALUE}>Unassigned</SelectItem>
-                          {users.map((user) => (
-                            <SelectItem key={user.id} value={user.id}>{user.name}</SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
                 <FormField
                   control={form.control}
                   name="dueDate"
@@ -288,8 +316,6 @@ export default function CreateTaskPage() {
                     </FormItem>
                   )}
                 />
-              </div>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 <FormField
                   control={form.control}
                   name="priority"
@@ -308,6 +334,8 @@ export default function CreateTaskPage() {
                     </FormItem>
                   )}
                 />
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 <FormField
                   control={form.control}
                   name="projectId"
@@ -326,8 +354,7 @@ export default function CreateTaskPage() {
                     </FormItem>
                   )}
                 />
-              </div>
-               <FormField
+                 <FormField
                   control={form.control}
                   name="status"
                   render={({ field }) => (
@@ -345,6 +372,7 @@ export default function CreateTaskPage() {
                     </FormItem>
                   )}
                 />
+              </div>
               <div className="flex justify-end gap-2 pt-4">
                   <Button type="button" variant="outline" onClick={() => router.back()} disabled={isSubmitting}>Cancel</Button>
                   <Button type="submit" disabled={isSubmitting || isLoadingData}>
