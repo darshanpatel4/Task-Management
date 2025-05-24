@@ -1,7 +1,7 @@
 
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react'; // Added useCallback
 import { useAuth } from '@/context/AuthContext';
 import type { Project } from '@/types';
 import { Button } from '@/components/ui/button';
@@ -22,7 +22,7 @@ export default function ProjectManagementPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  async function fetchProjects() {
+  const fetchProjects = useCallback(async () => { // Wrapped in useCallback
     if (!supabase) {
       setError("Supabase client is not available. Please check configuration.");
       setIsLoading(false);
@@ -51,7 +51,7 @@ export default function ProjectManagementPage() {
     } finally {
       setIsLoading(false);
     }
-  }
+  }, [toast]); // Added toast as dependency
 
   useEffect(() => {
     if (!isAdmin) {
@@ -59,9 +59,9 @@ export default function ProjectManagementPage() {
       return;
     }
     fetchProjects();
-  }, [isAdmin, toast]); // Removed fetchProjects from dependency array to avoid re-fetching on every render
+  }, [isAdmin, fetchProjects]); // Added fetchProjects to dependency array
 
-  if (!isAdmin) {
+  if (!isAdmin && !isLoading) { // Added !isLoading check
     return (
       <div className="flex items-center justify-center h-full">
           <Card className="w-full max-w-md">
@@ -90,8 +90,6 @@ export default function ProjectManagementPage() {
   };
 
   const handleEditProject = (projectId: string) => {
-    // Placeholder: This would navigate to an edit project form
-    // Example: router.push(`/admin/projects/edit/${projectId}`);
     if (!supabase) {
       toast({
         title: "Supabase Not Configured",
@@ -100,10 +98,11 @@ export default function ProjectManagementPage() {
       });
       return;
     }
-    alert(`Edit project ${projectId} (Supabase integration pending for CUD operations)`);
+    // Placeholder: This would navigate to an edit project form
+    // Example: router.push(`/admin/projects/edit/${projectId}`);
      toast({
-      title: "Edit Project",
-      description: `Functionality to edit project ${projectId} via Supabase will be added here.`
+      title: "Edit Project (Not Implemented)",
+      description: `Functionality to edit project ${projectId} is not yet implemented.`
     });
   };
 
@@ -116,7 +115,7 @@ export default function ProjectManagementPage() {
       });
       return;
     }
-    if (confirm(`Are you sure you want to delete project ${projectId}? This action cannot be undone.`)) {
+    if (confirm(`Are you sure you want to delete project with ID: ${projectId}? This action cannot be undone.`)) {
        setIsLoading(true);
        try {
         const { error: deleteError } = await supabase
@@ -127,7 +126,7 @@ export default function ProjectManagementPage() {
         if (deleteError) throw deleteError;
         
         toast({ title: "Project Deleted", description: `Project ${projectId} has been deleted.` });
-        setProjects(prevProjects => prevProjects.filter(p => p.id !== projectId)); // Refresh list
+        setProjects(prevProjects => prevProjects.filter(p => p.id !== projectId)); 
 
        } catch (e: any) {
          toast({
@@ -144,12 +143,12 @@ export default function ProjectManagementPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex justify-between items-center">
-        <div>
+      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center">
+        <div className="mb-4 sm:mb-0">
           <h1 className="text-3xl font-bold tracking-tight">Project Management</h1>
           <p className="text-muted-foreground">Manage all projects within TaskFlow AI.</p>
         </div>
-        <Button onClick={handleCreateProject} disabled={!supabase || isLoading}>
+        <Button onClick={handleCreateProject} disabled={!supabase || isLoading} className="w-full sm:w-auto">
           <PlusCircle className="mr-2 h-4 w-4" /> Create Project
         </Button>
       </div>
@@ -178,40 +177,42 @@ export default function ProjectManagementPage() {
             <p className="text-center text-muted-foreground py-8">No projects found. Start by creating one!</p>
           )}
           {!isLoading && !error && projects.length > 0 && (
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Name</TableHead>
-                  <TableHead>Description</TableHead>
-                  <TableHead>Created At</TableHead>
-                  <TableHead className="text-right">Actions</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {projects.map((project: Project) => (
-                  <TableRow key={project.id}>
-                    <TableCell className="font-medium flex items-center">
-                      <FolderKanban className="mr-2 h-4 w-4 text-primary" />
-                      {project.name}
-                    </TableCell>
-                    <TableCell className="text-muted-foreground max-w-md truncate">{project.description || 'No description'}</TableCell>
-                    <TableCell className="text-muted-foreground">
-                        {project.created_at ? format(new Date(project.created_at), 'MMM d, yyyy') : 'N/A'}
-                    </TableCell>
-                    <TableCell className="text-right">
-                       <div className="flex justify-end gap-1">
-                          <Button variant="ghost" size="icon" onClick={() => handleEditProject(project.id)} aria-label="Edit project" disabled={!supabase || isLoading}>
-                              <Edit3 className="h-4 w-4" />
-                          </Button>
-                          <Button variant="ghost" size="icon" className="text-destructive hover:text-destructive" onClick={() => handleDeleteProject(project.id)} aria-label="Delete project" disabled={!supabase || isLoading}>
-                              <Trash2 className="h-4 w-4" />
-                          </Button>
-                      </div>
-                    </TableCell>
+            <div className="relative w-full overflow-auto">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Name</TableHead>
+                    <TableHead>Description</TableHead>
+                    <TableHead>Created At</TableHead>
+                    <TableHead className="text-right">Actions</TableHead>
                   </TableRow>
-                ))}
-              </TableBody>
-            </Table>
+                </TableHeader>
+                <TableBody>
+                  {projects.map((project: Project) => (
+                    <TableRow key={project.id}>
+                      <TableCell className="font-medium flex items-center">
+                        <FolderKanban className="mr-2 h-4 w-4 text-primary" />
+                        {project.name}
+                      </TableCell>
+                      <TableCell className="text-muted-foreground max-w-xs sm:max-w-md md:max-w-lg truncate">{project.description || 'No description'}</TableCell>
+                      <TableCell className="text-muted-foreground">
+                          {project.created_at ? format(new Date(project.created_at), 'MMM d, yyyy') : 'N/A'}
+                      </TableCell>
+                      <TableCell className="text-right">
+                         <div className="flex justify-end gap-1">
+                            <Button variant="ghost" size="icon" onClick={() => handleEditProject(project.id)} aria-label="Edit project" disabled={!supabase || isLoading}>
+                                <Edit3 className="h-4 w-4" />
+                            </Button>
+                            <Button variant="ghost" size="icon" className="text-destructive hover:text-destructive" onClick={() => handleDeleteProject(project.id)} aria-label="Delete project" disabled={!supabase || isLoading}>
+                                <Trash2 className="h-4 w-4" />
+                            </Button>
+                        </div>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
           )}
         </CardContent>
       </Card>

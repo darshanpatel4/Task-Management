@@ -8,7 +8,7 @@ import { Button } from '@/components/ui/button';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
-import { UserPlus, Edit3, Trash2, ShieldCheck, UserCircle, Loader2, AlertTriangle } from 'lucide-react'; // Added UserPlus
+import { UserPlus, Edit3, Trash2, ShieldCheck, UserCircle, Loader2, AlertTriangle } from 'lucide-react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { useRouter } from 'next/navigation';
 import { supabase } from '@/lib/supabaseClient';
@@ -38,13 +38,14 @@ export default function UserManagementPage() {
     setIsLoading(true);
     setError(null);
     try {
-      // Fetch users from the 'profiles' table including the new 'email' column.
       const { data, error: supabaseError } = await supabase
         .from('profiles')
         .select('id, full_name, email, role, avatar_url'); 
 
       if (supabaseError) throw supabaseError;
       
+      console.log("UserManagementPage: Fetched profiles data from Supabase:", data); // Diagnostic log
+
       const mappedUsers: User[] = (data || []).map(profile => ({
         id: profile.id,
         name: profile.full_name || 'N/A',
@@ -129,12 +130,12 @@ export default function UserManagementPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex justify-between items-center">
-        <div>
+      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center">
+        <div className="mb-4 sm:mb-0">
           <h1 className="text-3xl font-bold tracking-tight">User Management</h1>
           <p className="text-muted-foreground">Manage all user profiles in the system.</p>
         </div>
-        <Button onClick={handleAddUser} disabled={isLoading || !supabase}>
+        <Button onClick={handleAddUser} disabled={isLoading || !supabase} className="w-full sm:w-auto">
           <UserPlus className="mr-2 h-4 w-4" /> Add User
         </Button>
       </div>
@@ -163,55 +164,57 @@ export default function UserManagementPage() {
             <p className="text-center text-muted-foreground py-8">No user profiles found. Start by creating one!</p>
           )}
           {!isLoading && !error && users.length > 0 && (
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Avatar</TableHead>
-                  <TableHead>Name</TableHead>
-                  <TableHead>Email</TableHead>
-                  <TableHead>Role</TableHead>
-                  <TableHead className="text-right">Actions</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {users.map((user: User) => (
-                  <TableRow key={user.id}>
-                    <TableCell>
-                      <Avatar className="h-9 w-9" data-ai-hint="user avatar">
-                        <AvatarImage src={user.avatar || `https://placehold.co/40x40.png?text=${user.name.substring(0,1)}`} alt={user.name} />
-                        <AvatarFallback>{user.name.substring(0, 2).toUpperCase()}</AvatarFallback>
-                      </Avatar>
-                    </TableCell>
-                    <TableCell className="font-medium">{user.name}</TableCell>
-                    <TableCell>{user.email}</TableCell>
-                    <TableCell>
-                      <Badge variant={user.role === 'Admin' ? 'default' : 'secondary'} className="capitalize">
-                        {user.role === 'Admin' ? <ShieldCheck className="mr-1 h-3 w-3" /> : <UserCircle className="mr-1 h-3 w-3" />}
-                        {user.role}
-                      </Badge>
-                    </TableCell>
-                    <TableCell className="text-right">
-                      <div className="flex justify-end gap-1">
-                          <Button variant="ghost" size="icon" onClick={() => handleEditUser(user.id)} aria-label="Edit user" disabled={!supabase || isLoading}>
-                              <Edit3 className="h-4 w-4" />
-                          </Button>
-                          <Button 
-                            variant="ghost" 
-                            size="icon" 
-                            className="text-destructive hover:text-destructive" 
-                            onClick={() => handleDeleteUser(user.id, user.name)} 
-                            aria-label="Delete user" 
-                            disabled={!supabase || isLoading || currentUser?.id === user.id}
-                            title={currentUser?.id === user.id ? "Cannot delete self" : "Delete user"}
-                          >
-                              <Trash2 className="h-4 w-4" />
-                          </Button>
-                      </div>
-                    </TableCell>
+            <div className="relative w-full overflow-auto">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Avatar</TableHead>
+                    <TableHead>Name</TableHead>
+                    <TableHead>Email</TableHead>
+                    <TableHead>Role</TableHead>
+                    <TableHead className="text-right">Actions</TableHead>
                   </TableRow>
-                ))}
-              </TableBody>
-            </Table>
+                </TableHeader>
+                <TableBody>
+                  {users.map((user: User) => (
+                    <TableRow key={user.id}>
+                      <TableCell>
+                        <Avatar className="h-9 w-9" data-ai-hint="user avatar">
+                          <AvatarImage src={user.avatar || `https://placehold.co/40x40.png?text=${user.name.substring(0,1)}`} alt={user.name} />
+                          <AvatarFallback>{user.name.substring(0, 2).toUpperCase()}</AvatarFallback>
+                        </Avatar>
+                      </TableCell>
+                      <TableCell className="font-medium">{user.name}</TableCell>
+                      <TableCell>{user.email}</TableCell>
+                      <TableCell>
+                        <Badge variant={user.role === 'Admin' ? 'default' : 'secondary'} className="capitalize">
+                          {user.role === 'Admin' ? <ShieldCheck className="mr-1 h-3 w-3" /> : <UserCircle className="mr-1 h-3 w-3" />}
+                          {user.role}
+                        </Badge>
+                      </TableCell>
+                      <TableCell className="text-right">
+                        <div className="flex justify-end gap-1">
+                            <Button variant="ghost" size="icon" onClick={() => handleEditUser(user.id)} aria-label="Edit user" disabled={!supabase || isLoading}>
+                                <Edit3 className="h-4 w-4" />
+                            </Button>
+                            <Button 
+                              variant="ghost" 
+                              size="icon" 
+                              className="text-destructive hover:text-destructive" 
+                              onClick={() => handleDeleteUser(user.id, user.name)} 
+                              aria-label="Delete user" 
+                              disabled={!supabase || isLoading || currentUser?.id === user.id}
+                              title={currentUser?.id === user.id ? "Cannot delete self" : "Delete user"}
+                            >
+                                <Trash2 className="h-4 w-4" />
+                            </Button>
+                        </div>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
           )}
         </CardContent>
       </Card>

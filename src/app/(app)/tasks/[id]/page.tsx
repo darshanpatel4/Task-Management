@@ -4,7 +4,7 @@
 import { useEffect, useState, useCallback } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { useAuth } from '@/context/AuthContext';
-import type { Task, TaskComment, TaskLog, TaskStatus } from '@/types';
+import type { Task, TaskComment, TaskLog, TaskStatus, TaskPriority } from '@/types'; // Added TaskPriority
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
@@ -17,7 +17,7 @@ import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from '
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import * as z from 'zod';
-import { format } from 'date-fns';
+import { format, parseISO } from 'date-fns'; // Added parseISO
 import { CalendarDays, User, Tag, Briefcase, MessageSquare, History, CheckCircle, AlertTriangle, Edit3, PlusCircle, Clock, Loader2, XCircle, ThumbsUp, RotateCcw } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { supabase } from '@/lib/supabaseClient';
@@ -67,15 +67,15 @@ export default function TaskDetailPage() {
       const { data, error: fetchError } = await supabase
         .from('tasks')
         .select(`
-          *,
-          project:projects(name),
-          assignee:profiles(full_name, avatar_url)
+          id, title, description, due_date, created_at, assignee_id, project_id, priority, status, user_id, comments, logs,
+          project:projects (name),
+          assignee:profiles (full_name, avatar_url)
         `)
         .eq('id', taskId)
         .single();
 
       if (fetchError) {
-        if (fetchError.code === 'PGRST116') { // Not found
+        if (fetchError.code === 'PGRST116') { 
           setTask(null);
           setError('Task not found.');
         } else {
@@ -83,20 +83,24 @@ export default function TaskDetailPage() {
         }
       } else if (data) {
         const fetchedTask: Task = {
-          ...data,
+          id: data.id,
+          title: data.title,
+          description: data.description,
           dueDate: data.due_date,
           createdAt: data.created_at,
-          assigneeName: data.assignee?.full_name || (data.assignee_id ? 'N/A' : 'Unassigned'),
           assigneeId: data.assignee_id,
-          // @ts-ignore Supabase types might not fully reflect joined structure
-          assigneeAvatar: data.assignee?.avatar_url,
           // @ts-ignore
-          projectName: data.project?.name || 'N/A',
+          assigneeName: data.assignee?.full_name || (data.assignee_id ? 'N/A' : 'Unassigned'),
+           // @ts-ignore
+          assigneeAvatar: data.assignee?.avatar_url,
           projectId: data.project_id,
+           // @ts-ignore
+          projectName: data.project?.name || 'N/A',
+          priority: data.priority as TaskPriority,
+          status: data.status as TaskStatus,
+          user_id: data.user_id,
           comments: Array.isArray(data.comments) ? data.comments : [],
           logs: Array.isArray(data.logs) ? data.logs : [],
-          project: undefined, // Remove nested objects after extracting details
-          assignee: undefined,
         };
         setTask(fetchedTask);
       } else {
@@ -195,16 +199,13 @@ export default function TaskDetailPage() {
       toast({ title: "Permission Denied", description: "Only the assignee can mark this task as completed.", variant: "destructive"});
       return;
     }
-    if ((newStatus === 'Approved' || (newStatus === 'In Progress' && task.status === 'Completed')) && !isAdmin) {
-       toast({ title: "Permission Denied", description: "Only an admin can approve or reject this task.", variant: "destructive"});
+    if (newStatus === 'Approved' && !(isAdmin && task.status === 'Completed')) {
+       toast({ title: "Invalid Action", description: "Only an admin can approve a completed task.", variant: "destructive"});
       return;
     }
-    if (newStatus === 'Approved' && task.status !== 'Completed') {
-        toast({ title: "Invalid Action", description: "Task must be 'Completed' to be approved.", variant: "destructive"});
+     if (newStatus === 'In Progress' && !(isAdmin && task.status === 'Completed')) { // Admin rejecting
+        toast({ title: "Invalid Action", description: "Only an admin can send a completed task back to 'In Progress'.", variant: "destructive"});
         return;
-    }
-     if (newStatus === 'In Progress' && task.status !== 'Completed' && isAdmin) { // Admin rejecting
-        // This is fine
     }
 
 
@@ -220,8 +221,9 @@ export default function TaskDetailPage() {
       setTask(prevTask => prevTask ? { ...prevTask, status: newStatus } : null);
       toast({ title: "Status Updated", description: `Task status changed to ${newStatus}.` });
       if (newStatus === 'Completed' || newStatus === 'Approved' || (newStatus === 'In Progress' && isAdmin && task.status === 'Completed')) {
-        // Optionally redirect or refresh data for other components
-        // For instance, if an admin rejects, they might want to stay on the page or go back to approvals
+        // if (newStatus === 'Approved' || (newStatus === 'In Progress' && isAdmin && task.status === 'Completed')) {
+        //   router.push('/admin/approvals'); // Redirect admin after action on approval queue item
+        // }
       }
 
     } catch (e: any) {
@@ -242,7 +244,7 @@ export default function TaskDetailPage() {
     }
   };
   
-  const getPriorityVariant = (priority?: Task['priority']): "default" | "secondary" | "destructive" | "outline" => {
+  const getPriorityVariant = (priority?: TaskPriority): "default" | "secondary" | "destructive" | "outline" => {
     switch (priority) {
       case 'High': return 'destructive';
       case 'Medium': return 'default'; 
@@ -259,7 +261,7 @@ export default function TaskDetailPage() {
     );
   }
 
-  if (error && !task) { // Show error prominently if task couldn't be loaded at all
+  if (error && !task) { 
     return (
       <div className="flex flex-col items-center justify-center h-64 text-destructive">
         <AlertTriangle className="w-12 h-12 mb-4" />
@@ -270,7 +272,7 @@ export default function TaskDetailPage() {
     );
   }
   
-  if (!task) { // Should be caught by error state if fetch failed, but as a fallback.
+  if (!task) { 
      return (
       <div className="flex flex-col items-center justify-center h-64 text-muted-foreground">
         <XCircle className="w-12 h-12 mb-4" />
@@ -282,7 +284,8 @@ export default function TaskDetailPage() {
   }
 
   const canMarkCompleted = currentUser?.id === task.assigneeId && (task.status === 'In Progress' || task.status === 'Pending');
-  const canAdminApproveOrReject = isAdmin && task.status === 'Completed';
+  const canAdminApprove = isAdmin && task.status === 'Completed';
+  const canAdminReject = isAdmin && task.status === 'Completed';
   const canLogTime = currentUser?.id === task.assigneeId && (task.status === 'In Progress' || task.status === 'Pending');
 
   return (
@@ -291,13 +294,13 @@ export default function TaskDetailPage() {
         <CardHeader>
           <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center">
             <CardTitle className="text-2xl md:text-3xl mb-2 sm:mb-0">{task.title}</CardTitle>
-            <div className="flex gap-2 items-center">
-                <Badge variant={getPriorityVariant(task.priority)} className="capitalize text-sm px-3 py-1">{task.priority}</Badge>
-                <Badge variant={getStatusVariant(task.status)} className="capitalize text-sm px-3 py-1">{task.status}</Badge>
+            <div className="flex gap-2 items-center mt-2 sm:mt-0">
+                {task.priority && <Badge variant={getPriorityVariant(task.priority)} className="capitalize text-sm px-3 py-1">{task.priority}</Badge>}
+                {task.status && <Badge variant={getStatusVariant(task.status)} className="capitalize text-sm px-3 py-1">{task.status}</Badge>}
                 {isUpdatingStatus && <Loader2 className="h-5 w-5 animate-spin" />}
             </div>
           </div>
-          <CardDescription>Created on {task.createdAt ? format(new Date(task.createdAt), 'PPP') : 'N/A'}</CardDescription>
+          <CardDescription>Created on {task.createdAt ? format(parseISO(task.createdAt), 'PPP') : 'N/A'}</CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
@@ -309,7 +312,7 @@ export default function TaskDetailPage() {
                 <strong>Assignee:</strong>
                 <span className="ml-1">{task.assigneeName || 'Unassigned'}</span>
             </div>
-            <div className="flex items-center"><CalendarDays className="w-4 h-4 mr-2 text-muted-foreground" /><strong>Due Date:</strong><span className="ml-1">{task.dueDate ? format(new Date(task.dueDate), 'PPP') : 'N/A'}</span></div>
+            <div className="flex items-center"><CalendarDays className="w-4 h-4 mr-2 text-muted-foreground" /><strong>Due Date:</strong><span className="ml-1">{task.dueDate ? format(parseISO(task.dueDate), 'PPP') : 'N/A'}</span></div>
             <div className="flex items-center"><Briefcase className="w-4 h-4 mr-2 text-muted-foreground" /><strong>Project:</strong><span className="ml-1">{task.projectName || 'N/A'}</span></div>
           </div>
           <Separator />
@@ -318,24 +321,24 @@ export default function TaskDetailPage() {
             <p className="text-muted-foreground whitespace-pre-wrap">{task.description || 'No description provided.'}</p>
           </div>
         </CardContent>
-        <CardFooter className="flex flex-col sm:flex-row justify-end items-center gap-2 pt-4">
+        <CardFooter className="flex flex-col sm:flex-row justify-end items-center gap-2 pt-4 border-t">
           {isAdmin && (
-            <Button variant="outline" onClick={() => router.push(`/tasks/edit/${task.id}`)} disabled={isUpdatingStatus || !supabase}><Edit3 className="mr-2 h-4 w-4" /> Edit Task</Button>
+            <Button variant="outline" onClick={() => router.push(`/tasks/edit/${task.id}`)} disabled={isUpdatingStatus || !supabase}><Edit3 className="mr-2 h-4 w-4" /> Edit Task (Admin)</Button>
           )}
           {canMarkCompleted && (
             <Button onClick={() => handleUpdateStatus('Completed')} disabled={isUpdatingStatus || !supabase}><CheckCircle className="mr-2 h-4 w-4" /> Mark as Completed</Button>
           )}
-          {canAdminApproveOrReject && (
-            <>
+          {canAdminApprove && (
               <Button onClick={() => handleUpdateStatus('Approved')} disabled={isUpdatingStatus || !supabase} className="bg-green-600 hover:bg-green-700"><ThumbsUp className="mr-2 h-4 w-4" /> Approve Task</Button>
-              <Button variant="destructive" onClick={() => handleUpdateStatus('In Progress')} disabled={isUpdatingStatus || !supabase}><RotateCcw className="mr-2 h-4 w-4" /> Send Back to In Progress</Button>
-            </>
+          )}
+          {canAdminReject && (
+              <Button variant="destructive" onClick={() => handleUpdateStatus('In Progress')} disabled={isUpdatingStatus || !supabase}><RotateCcw className="mr-2 h-4 w-4" /> Reject (Back to In Progress)</Button>
           )}
         </CardFooter>
       </Card>
 
       <Tabs defaultValue="comments" className="w-full">
-        <TabsList className="grid w-full grid-cols-2">
+        <TabsList className="grid w-full grid-cols-1 gap-1 sm:grid-cols-2">
           <TabsTrigger value="comments"><MessageSquare className="w-4 h-4 mr-2 inline-block"/>Comments ({task.comments?.length || 0})</TabsTrigger>
           <TabsTrigger value="logs"><History className="w-4 h-4 mr-2 inline-block"/>Activity Logs ({task.logs?.length || 0})</TabsTrigger>
         </TabsList>
@@ -353,7 +356,7 @@ export default function TaskDetailPage() {
                   <div className="flex-1 p-3 rounded-md bg-muted/50">
                     <div className="flex items-center justify-between">
                       <p className="font-semibold text-sm">{comment.userName}</p>
-                      <p className="text-xs text-muted-foreground">{format(new Date(comment.createdAt), 'MMM d, yyyy HH:mm')}</p>
+                      <p className="text-xs text-muted-foreground">{format(parseISO(comment.createdAt), 'MMM d, yyyy HH:mm')}</p>
                     </div>
                     <p className="text-sm mt-1 whitespace-pre-wrap">{comment.comment}</p>
                   </div>
@@ -389,7 +392,7 @@ export default function TaskDetailPage() {
                 <div key={log.id} className="p-3 rounded-md border text-sm">
                     <div className="flex justify-between items-center mb-1">
                         <p><span className="font-semibold">{log.userName}</span> logged <span className="font-semibold">{log.hoursSpent} hours</span></p>
-                        <p className="text-xs text-muted-foreground">{format(new Date(log.date), 'PPP HH:mm')}</p>
+                        <p className="text-xs text-muted-foreground">{format(parseISO(log.date), 'PPP HH:mm')}</p>
                     </div>
                     <p className="text-muted-foreground whitespace-pre-wrap">Description: {log.workDescription}</p>
                 </div>
