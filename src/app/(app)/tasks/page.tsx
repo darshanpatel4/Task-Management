@@ -1,7 +1,7 @@
 
 'use client';
 
-import { useState, useMemo, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import Link from 'next/link';
 import { useAuth } from '@/context/AuthContext';
 import type { Task, TaskStatus, TaskPriority, Project } from '@/types';
@@ -11,7 +11,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Badge } from '@/components/ui/badge';
 import { PlusCircle, Search, Edit3, Trash2, Eye, Loader2, AlertTriangle } from 'lucide-react';
-import { format } from 'date-fns';
+import { format, parseISO } from 'date-fns'; // Added parseISO
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { supabase } from '@/lib/supabaseClient';
 import { useToast } from '@/hooks/use-toast';
@@ -20,7 +20,7 @@ const statusOptions: TaskStatus[] = ['Pending', 'In Progress', 'Completed', 'App
 const priorityOptions: TaskPriority[] = ['Low', 'Medium', 'High'];
 
 export default function TasksPage() {
-  const { currentUser, isAdmin } = useAuth();
+  const { currentUser, isAdmin, loading: authLoading } = useAuth();
   const { toast } = useToast();
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState<TaskStatus | 'all'>('all');
@@ -31,11 +31,14 @@ export default function TasksPage() {
   const [projectsForFilter, setProjectsForFilter] = useState<Pick<Project, 'id' | 'name'>[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [assigneeNames, setAssigneeNames] = useState<Record<string, string>>({});
+
 
   const fetchTasksAndProjects = useCallback(async () => {
-    if (!currentUser || !supabase) {
+    if (authLoading || !currentUser || !supabase) {
       setIsLoading(false);
-      setError(currentUser ? "Supabase client not available." : "User not authenticated.");
+      if (!authLoading && !currentUser) setError("User not authenticated.");
+      else if (!supabase) setError("Supabase client not available.");
       return;
     }
 
@@ -43,8 +46,8 @@ export default function TasksPage() {
     setError(null);
 
     try {
-      // Fetch projects for the filter dropdown (only if admin, or adjust as needed)
-      if (isAdmin) { // Or if non-admins also need to filter by project for some reason
+      // Fetch projects for the filter dropdown (only if admin)
+      if (isAdmin) {
         const { data: projectData, error: projectError } = await supabase
           .from('projects')
           .select('id, name')
@@ -56,10 +59,10 @@ export default function TasksPage() {
       // Build tasks query
       let query = supabase
         .from('tasks')
-        .select('*, project:projects(name), assignee:profiles(full_name)') // Fetch related data
+        .select('id, title, description, due_date, created_at, assignee_id, project_id, priority, status, user_id, project:projects!inner(name)')
         .order('created_at', { ascending: false });
 
-      if (!isAdmin) {
+      if (!isAdmin && currentUser?.id) {
         query = query.eq('assignee_id', currentUser.id);
       }
       if (statusFilter !== 'all') {
@@ -68,7 +71,7 @@ export default function TasksPage() {
       if (priorityFilter !== 'all') {
         query = query.eq('priority', priorityFilter);
       }
-      if (projectFilter !== 'all' && isAdmin) { // Project filter usually for admins
+      if (projectFilter !== 'all' && isAdmin) { 
         query = query.eq('project_id', projectFilter);
       }
       if (searchTerm) {
@@ -80,17 +83,44 @@ export default function TasksPage() {
       if (tasksError) throw tasksError;
 
       const mappedTasks: Task[] = tasksData?.map(task => ({
-        ...task,
+        id: task.id,
+        title: task.title,
+        description: task.description,
         dueDate: task.due_date,
         createdAt: task.created_at,
-        assigneeName: task.assignee?.full_name || (task.assignee_id ? 'N/A' : 'Unassigned'),
-        assigneeId: task.assignee_id,
-        projectName: task.project?.name || 'N/A',
+        assignee_id: task.assignee_id,
+        assigneeName: task.assignee_id === currentUser?.id ? currentUser.name : (task.assignee_id ? 'Loading...' : 'Unassigned'),
         projectId: task.project_id,
-        project: undefined, 
-        assignee: undefined,
+        projectName: task.project?.name || 'N/A',
+        priority: task.priority as TaskPriority,
+        status: task.status as TaskStatus,
+        user_id: task.user_id,
       })) || [];
       setTasks(mappedTasks);
+
+      // If admin, fetch assignee names for all tasks
+      if (isAdmin && mappedTasks.length > 0) {
+        const assigneeIdsToFetch = [...new Set(mappedTasks.map(t => t.assignee_id).filter(id => id))] as string[];
+        if (assigneeIdsToFetch.length > 0) {
+          const { data: profilesData, error: profilesError } = await supabase
+            .from('profiles')
+            .select('id, full_name')
+            .in('id', assigneeIdsToFetch);
+          
+          if (profilesError) {
+            console.error('TasksPage: Error fetching assignee names:', profilesError);
+          } else {
+            const namesMap: Record<string, string> = {};
+            profilesData?.forEach(p => { namesMap[p.id] = p.full_name || 'N/A'; });
+            setAssigneeNames(namesMap);
+             setTasks(prevTasks => prevTasks.map(t => ({
+                ...t,
+                assigneeName: t.assignee_id ? (namesMap[t.assignee_id] || 'N/A') : 'Unassigned'
+            })));
+          }
+        }
+      }
+
 
     } catch (e: any) {
       console.error('Error fetching tasks or projects:', e);
@@ -99,15 +129,16 @@ export default function TasksPage() {
     } finally {
       setIsLoading(false);
     }
-  }, [currentUser, isAdmin, searchTerm, statusFilter, priorityFilter, projectFilter, toast]);
+  }, [currentUser, isAdmin, searchTerm, statusFilter, priorityFilter, projectFilter, toast, authLoading]);
 
   useEffect(() => {
-    fetchTasksAndProjects();
-  }, [fetchTasksAndProjects]);
+    if (!authLoading) {
+        fetchTasksAndProjects();
+    }
+  }, [authLoading, fetchTasksAndProjects]);
 
 
   const getStatusVariant = (status?: Task['status']): "default" | "secondary" | "destructive" | "outline" => {
-    // ... (same as before)
     switch (status) {
       case 'Pending': return 'secondary';
       case 'In Progress': return 'default';
@@ -118,7 +149,6 @@ export default function TasksPage() {
   };
   
   const getPriorityVariant = (priority?: Task['priority']): "default" | "secondary" | "destructive" | "outline" => {
-    // ... (same as before)
      switch (priority) {
       case 'High': return 'destructive';
       case 'Medium': return 'default'; 
@@ -127,7 +157,6 @@ export default function TasksPage() {
     }
   };
 
-  // Placeholder for delete, to be implemented with Supabase
   const handleDeleteTask = async (taskId: string) => {
     if (!supabase) {
         toast({ title: "Supabase Not Configured", description: `Cannot delete task ${taskId}.`, variant: "destructive" });
@@ -135,21 +164,34 @@ export default function TasksPage() {
     }
     if (confirm(`Are you sure you want to delete task ${taskId}? This action cannot be undone.`)) {
         try {
-            setIsLoading(true); // Or a specific deleting state
+            setIsLoading(true); 
             const { error: deleteError } = await supabase.from('tasks').delete().match({ id: taskId });
             if (deleteError) throw deleteError;
             toast({ title: "Task Deleted", description: `Task ${taskId} has been deleted.` });
-            fetchTasksAndProjects(); // Refresh the list
+            fetchTasksAndProjects(); 
         } catch (e: any) {
             toast({ title: "Error Deleting Task", description: e.message || "Could not delete task.", variant: "destructive" });
         } finally {
-            setIsLoading(false);
+            // Set a brief loading state for the whole page might be too much,
+            // consider a specific "isDeleting" state for the row or button if UX needs refinement.
+            // For now, rely on the main isLoading state being managed by fetchTasksAndProjects.
+            if (isLoading) setIsLoading(false); // Ensure loading is false if delete was the only action
         }
     }
   };
 
 
-  if (!currentUser && !isLoading) { // Should be caught by layout
+  if (authLoading) {
+      return (
+        <div className="flex justify-center items-center h-64">
+            <Loader2 className="h-12 w-12 animate-spin text-primary" />
+            <p className="ml-3 text-muted-foreground">Authenticating...</p>
+        </div>
+    );
+  }
+
+
+  if (!currentUser && !isLoading) { 
       return <p>Redirecting to login...</p>;
   }
 
@@ -252,7 +294,7 @@ export default function TasksPage() {
                     </TableCell>
                     {isAdmin && <TableCell>{task.assigneeName || 'Unassigned'}</TableCell>}
                     <TableCell>{task.projectName || 'N/A'}</TableCell>
-                    <TableCell>{task.dueDate ? format(new Date(task.dueDate), 'MMM d, yyyy') : 'N/A'}</TableCell>
+                    <TableCell>{task.dueDate ? format(parseISO(task.dueDate), 'MMM d, yyyy') : 'N/A'}</TableCell>
                     <TableCell><Badge variant={getPriorityVariant(task.priority)} className="capitalize">{task.priority}</Badge></TableCell>
                     <TableCell><Badge variant={getStatusVariant(task.status)} className="capitalize">{task.status}</Badge></TableCell>
                     <TableCell className="text-right">
@@ -264,7 +306,6 @@ export default function TasksPage() {
                         </Link>
                         {isAdmin && (
                           <>
-                            {/* Edit task functionality would navigate to a pre-filled form, e.g., /tasks/edit/[id] */}
                             <Link href={`/tasks/edit/${task.id}`}> 
                               <Button variant="ghost" size="icon" aria-label="Edit task" disabled={!supabase || isLoading}>
                                 <Edit3 className="h-4 w-4" />

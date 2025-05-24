@@ -1,9 +1,9 @@
 
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import { useAuth } from '@/context/AuthContext';
-import type { Task, Project, TaskPriority, TaskStatus } from '@/types'; // Added TaskPriority, TaskStatus
+import type { Task, Project, TaskPriority, TaskStatus } from '@/types';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -12,7 +12,7 @@ import { ArrowRight, Users, ListChecks, CheckCircle2, FolderKanban, Loader2, Ale
 import { format } from 'date-fns';
 import { supabase } from '@/lib/supabaseClient';
 import { useToast } from '@/hooks/use-toast';
-import { useRouter, usePathname } from 'next/navigation'; // Added import
+import { useRouter, usePathname } from 'next/navigation';
 
 interface DashboardStats {
   totalUsers: number;
@@ -22,125 +22,153 @@ interface DashboardStats {
 }
 
 export default function DashboardPage() {
-  const { currentUser, isAdmin } = useAuth();
+  const { currentUser, isAdmin, loading: authLoading } = useAuth(); // Renamed loading to authLoading
   const { toast } = useToast();
-  const router = useRouter(); // Now defined
-  const pathname = usePathname(); // Now defined
+  const router = useRouter();
+  const pathname = usePathname();
 
   const [stats, setStats] = useState<DashboardStats | null>(null);
   const [displayedTasks, setDisplayedTasks] = useState<Task[]>([]);
   const [isLoadingStats, setIsLoadingStats] = useState(true);
   const [isLoadingTasks, setIsLoadingTasks] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [assigneeNames, setAssigneeNames] = useState<Record<string, string>>({});
 
-  useEffect(() => {
+
+  const fetchDashboardData = useCallback(async () => {
     if (!currentUser || !supabase) {
       console.log("Dashboard: currentUser or Supabase client not available. Skipping data fetch.", { hasCurrentUser: !!currentUser, hasSupabase: !!supabase });
       setIsLoadingStats(false);
       setIsLoadingTasks(false);
-      if (!loading && !currentUser && !pathname.startsWith('/auth')) router.push('/auth/login');
+      if (!authLoading && !currentUser && !pathname.startsWith('/auth')) {
+        // This should be handled by AppLayout, but as a fallback:
+        router.push('/auth/login');
+      }
       return;
     }
 
-    async function fetchDashboardData() {
-      console.log("Dashboard: Starting data fetch for user:", currentUser?.id, "isAdmin:", isAdmin);
-      setIsLoadingStats(true);
-      setIsLoadingTasks(true);
-      setError(null);
+    console.log("Dashboard: Starting data fetch for user:", currentUser?.id, "isAdmin:", isAdmin);
+    setIsLoadingStats(true);
+    setIsLoadingTasks(true);
+    setError(null);
 
-      try {
-        // Fetch Stats
-        if (isAdmin) {
-          console.log("Dashboard: Admin detected, fetching all stats.");
-          const [
-            { count: totalUsersCount, error: usersError },
-            { count: totalTasksCount, error: tasksError },
-            { count: pendingApprovalsCount, error: approvalsError },
-            { count: activeProjectsCount, error: projectsError },
-          ] = await Promise.all([
-            supabase.from('profiles').select('*', { count: 'exact', head: true }),
-            supabase.from('tasks').select('*', { count: 'exact', head: true }),
-            supabase.from('tasks').select('*', { count: 'exact', head: true }).eq('status', 'Completed'),
-            supabase.from('projects').select('*', { count: 'exact', head: true }),
-          ]);
+    try {
+      // Fetch Stats
+      if (isAdmin) {
+        console.log("Dashboard: Admin detected, fetching all stats.");
+        const [
+          { count: totalUsersCount, error: usersError },
+          { count: totalTasksCount, error: tasksError },
+          { count: pendingApprovalsCount, error: approvalsError },
+          { count: activeProjectsCount, error: projectsError },
+        ] = await Promise.all([
+          supabase.from('profiles').select('*', { count: 'exact', head: true }),
+          supabase.from('tasks').select('*', { count: 'exact', head: true }),
+          supabase.from('tasks').select('*', { count: 'exact', head: true }).eq('status', 'Completed'),
+          supabase.from('projects').select('*', { count: 'exact', head: true }),
+        ]);
 
-          if (usersError) { console.error('Dashboard: Error fetching users count:', usersError); throw new Error(`Users count: ${usersError.message} (Code: ${usersError.code})`); }
-          if (tasksError) { console.error('Dashboard: Error fetching tasks count:', tasksError); throw new Error(`Tasks count: ${tasksError.message} (Code: ${tasksError.code})`); }
-          if (approvalsError) { console.error('Dashboard: Error fetching approvals count:', approvalsError); throw new Error(`Approvals count: ${approvalsError.message} (Code: ${approvalsError.code})`); }
-          if (projectsError) { console.error('Dashboard: Error fetching projects count:', projectsError); throw new Error(`Projects count: ${projectsError.message} (Code: ${projectsError.code})`); }
-          
-          console.log("Dashboard: Admin stats fetched.", { totalUsersCount, totalTasksCount, pendingApprovalsCount, activeProjectsCount });
-          setStats({
-            totalUsers: totalUsersCount || 0,
-            totalTasks: totalTasksCount || 0,
-            pendingApprovals: pendingApprovalsCount || 0,
-            activeProjects: activeProjectsCount || 0,
-          });
-        }
-        setIsLoadingStats(false);
-
-        // Fetch Tasks
-        console.log("Dashboard: Fetching tasks.");
-        let tasksQuery = supabase
-          .from('tasks')
-          .select('id, title, description, due_date, created_at, assignee_id, project_id, priority, status, project:projects(name), assignee:profiles(full_name, avatar_url)')
-          .order('created_at', { ascending: false });
-
-        if (isAdmin) {
-          tasksQuery = tasksQuery.limit(5);
-          console.log("Dashboard: Admin task query (limit 5).");
-        } else {
-          tasksQuery = tasksQuery.eq('assignee_id', currentUser.id);
-          console.log(`Dashboard: User task query for assignee_id: ${currentUser.id}.`);
-        }
-
-        const { data: tasksData, error: tasksFetchError } = await tasksQuery;
-
-        if (tasksFetchError) {
-          console.error('Dashboard: Error fetching tasks:', tasksFetchError);
-          throw new Error(`Tasks fetch: ${tasksFetchError.message} (Code: ${tasksFetchError.code})`);
-        }
-
-        const mappedTasks: Task[] = tasksData?.map(task => ({
-          // ...task, // Spread existing task properties
-          id: task.id,
-          title: task.title,
-          description: task.description,
-          dueDate: task.due_date,
-          createdAt: task.created_at,
-          assigneeId: task.assignee_id,
-           // @ts-ignore
-          assigneeName: task.assignee?.full_name || (task.assignee_id ? 'N/A' : 'Unassigned'),
-          projectId: task.project_id,
-           // @ts-ignore
-          projectName: task.project?.name || 'N/A',
-          priority: task.priority as TaskPriority,
-          status: task.status as TaskStatus,
-          // Ensure other potentially undefined fields from Task type are handled if not in select
-          user_id: task.user_id, // Assuming user_id might be part of your task structure
-          comments: task.comments, // Assuming comments might be part of your task structure
-          logs: task.logs, // Assuming logs might be part of your task structure
-        })) || [];
+        if (usersError) { console.error('Dashboard: Error fetching users count:', usersError); throw new Error(`Users count: ${usersError.message} (Code: ${usersError.code})`); }
+        if (tasksError) { console.error('Dashboard: Error fetching tasks count:', tasksError); throw new Error(`Tasks count: ${tasksError.message} (Code: ${tasksError.code})`); }
+        if (approvalsError) { console.error('Dashboard: Error fetching approvals count:', approvalsError); throw new Error(`Approvals count: ${approvalsError.message} (Code: ${approvalsError.code})`); }
+        if (projectsError) { console.error('Dashboard: Error fetching projects count:', projectsError); throw new Error(`Projects count: ${projectsError.message} (Code: ${projectsError.code})`); }
         
-        console.log("Dashboard: Tasks mapped.", { count: mappedTasks.length });
-        setDisplayedTasks(mappedTasks);
-
-      } catch (e: any) {
-        console.error('Dashboard: Overall fetch error:', e);
-        setError(e.message || 'Could not load dashboard data.');
-        toast({ title: 'Error Loading Dashboard', description: e.message || 'Could not load dashboard data.', variant: 'destructive' });
-      } finally {
-        console.log("Dashboard: Fetch attempt finished.");
-        setIsLoadingStats(false);
-        setIsLoadingTasks(false);
+        console.log("Dashboard: Admin stats fetched.", { totalUsersCount, totalTasksCount, pendingApprovalsCount, activeProjectsCount });
+        setStats({
+          totalUsers: totalUsersCount || 0,
+          totalTasks: totalTasksCount || 0,
+          pendingApprovals: pendingApprovalsCount || 0,
+          activeProjects: activeProjectsCount || 0,
+        });
       }
+      setIsLoadingStats(false);
+
+      // Fetch Tasks
+      console.log("Dashboard: Fetching tasks.");
+      let tasksQuery = supabase
+        .from('tasks')
+        .select('id, title, description, due_date, created_at, assignee_id, project_id, priority, status, user_id, project:projects!inner(name)')
+        .order('created_at', { ascending: false });
+
+      if (!isAdmin && currentUser?.id) {
+        tasksQuery = tasksQuery.eq('assignee_id', currentUser.id);
+        console.log(`Dashboard: User task query for assignee_id: ${currentUser.id}.`);
+      } else if (isAdmin) {
+         tasksQuery = tasksQuery.limit(5); // Admin sees recent 5
+         console.log("Dashboard: Admin task query (limit 5).");
+      }
+
+
+      const { data: tasksData, error: tasksFetchError } = await tasksQuery;
+
+      if (tasksFetchError) {
+        console.error('Dashboard: Error fetching tasks:', tasksFetchError);
+        throw new Error(`Tasks fetch: ${tasksFetchError.message} (Code: ${tasksFetchError.code})`);
+      }
+
+      const mappedTasks: Task[] = tasksData?.map(task => ({
+        id: task.id,
+        title: task.title,
+        description: task.description,
+        dueDate: task.due_date,
+        createdAt: task.created_at,
+        assignee_id: task.assignee_id,
+        // Assignee name will be fetched/set separately for admins
+        assigneeName: task.assignee_id === currentUser?.id ? currentUser.name : (task.assignee_id ? 'Loading...' : 'Unassigned'),
+        projectId: task.project_id,
+        projectName: task.project?.name || 'N/A',
+        priority: task.priority as TaskPriority,
+        status: task.status as TaskStatus,
+        user_id: task.user_id,
+        comments: task.comments,
+        logs: task.logs,
+      })) || [];
+      
+      console.log("Dashboard: Tasks mapped.", { count: mappedTasks.length });
+      setDisplayedTasks(mappedTasks);
+
+      // If admin, fetch assignee names for the displayed tasks
+      if (isAdmin && mappedTasks.length > 0) {
+        const assigneeIdsToFetch = [...new Set(mappedTasks.map(t => t.assignee_id).filter(id => id))] as string[];
+        if (assigneeIdsToFetch.length > 0) {
+          const { data: profilesData, error: profilesError } = await supabase
+            .from('profiles')
+            .select('id, full_name')
+            .in('id', assigneeIdsToFetch);
+          
+          if (profilesError) {
+            console.error('Dashboard: Error fetching assignee names for admin dashboard:', profilesError);
+          } else {
+            const namesMap: Record<string, string> = {};
+            profilesData?.forEach(p => { namesMap[p.id] = p.full_name || 'N/A'; });
+            setAssigneeNames(namesMap);
+            // Update tasks with fetched names
+            setDisplayedTasks(prevTasks => prevTasks.map(t => ({
+                ...t,
+                assigneeName: t.assignee_id ? (namesMap[t.assignee_id] || 'N/A') : 'Unassigned'
+            })));
+          }
+        }
+      }
+
+
+    } catch (e: any) {
+      console.error('Dashboard: Overall fetch error:', e);
+      setError(e.message || 'Could not load dashboard data.');
+      toast({ title: 'Error Loading Dashboard', description: e.message || 'Could not load dashboard data.', variant: 'destructive' });
+    } finally {
+      console.log("Dashboard: Fetch attempt finished.");
+      setIsLoadingStats(false);
+      setIsLoadingTasks(false);
     }
+  }, [currentUser, isAdmin, toast, router, pathname, authLoading]); 
 
-    // Only fetch data if currentUser and supabase are available
-    fetchDashboardData();
-  }, [currentUser, isAdmin, toast]); // Removed router and pathname as they are not direct dependencies for fetching data
+  useEffect(() => {
+    if (!authLoading) { // Only fetch if auth state is resolved
+        fetchDashboardData();
+    }
+  }, [authLoading, fetchDashboardData]);
 
-  const { loading } = useAuth(); // get loading state from AuthContext
 
   const getStatusVariant = (status?: Task['status']): "default" | "secondary" | "destructive" | "outline" => {
     switch (status) {
@@ -162,7 +190,7 @@ export default function DashboardPage() {
   };
 
 
-  if (isLoadingStats || isLoadingTasks) {
+  if (authLoading || (isLoadingStats && isAdmin) || isLoadingTasks) { // Check isLoadingStats only for admin
     return (
       <div className="flex justify-center items-center h-64">
         <Loader2 className="h-12 w-12 animate-spin text-primary" />
@@ -177,25 +205,18 @@ export default function DashboardPage() {
         <AlertTriangle className="h-12 w-12 mb-4" />
         <h2 className="text-xl font-semibold mb-2">Error Loading Dashboard</h2>
         <p>{error}</p>
-         <Button variant="outline" onClick={() => { 
-            if (currentUser && supabase) { // Re-trigger fetch
-                setIsLoadingStats(true); setIsLoadingTasks(true); setError(null);
-                // Call a function to re-fetch data, or manage state to re-trigger useEffect
-                // For simplicity, this might re-trigger the effect if dependencies are set up for it.
-                // Ideally, you'd call a standalone fetchDashboardData function here.
-                // For now, we rely on the effect re-running if its deps changed or a full reload.
-            }
-         }} disabled={!currentUser || !supabase}>Try Again</Button>
+         <Button variant="outline" onClick={fetchDashboardData} disabled={!currentUser || !supabase}>Try Again</Button>
       </div>
     );
   }
   
-  if (!loading && !currentUser && !pathname.startsWith('/auth')) { // Auth guard, should be handled by AppLayout
+  if (!authLoading && !currentUser && !pathname.startsWith('/auth')) { 
+    // This case should ideally be handled by AppLayout's auth guard.
     // router.push('/auth/login'); // Handled by AppLayout
     return <p>Redirecting to login...</p>;
   }
   
-  if (!currentUser) { // Fallback if still no current user after loading
+  if (!currentUser) { 
     return <p>Please log in to view the dashboard.</p>;
   }
 
@@ -290,7 +311,7 @@ export default function DashboardPage() {
                       {task.title}
                     </Link>
                     <p className="text-sm text-muted-foreground">
-                      Project: {task.projectName || 'N/A'} - Due: {task.dueDate ? format(new Date(task.dueDate), 'PPP') : 'N/A'}
+                      Project: {task.projectName || 'N/A'} - Due: {task.dueDate ? format(parseISO(task.dueDate), 'PPP') : 'N/A'}
                     </p>
                     {isAdmin && <p className="text-xs text-muted-foreground">Assigned to: {task.assigneeName}</p>}
                   </div>

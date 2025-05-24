@@ -18,7 +18,7 @@ import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import * as z from 'zod';
 import { format, parseISO } from 'date-fns';
-import { CalendarDays, Tag, Briefcase, MessageSquare, History, CheckCircle, AlertTriangle, Edit3, PlusCircle, Clock, Loader2, XCircle, ThumbsUp, RotateCcw, UsersIcon } from 'lucide-react';
+import { CalendarDays, Briefcase, MessageSquare, History, CheckCircle, AlertTriangle, Edit3, Clock, Loader2, XCircle, ThumbsUp, RotateCcw, User as UserIcon } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { supabase } from '@/lib/supabaseClient';
 
@@ -38,7 +38,7 @@ export default function TaskDetailPage() {
   const { toast } = useToast();
 
   const [task, setTask] = useState<Task | null>(null);
-  const [assigneeDetails, setAssigneeDetails] = useState<AssigneeProfile[]>([]);
+  const [assigneeDetail, setAssigneeDetail] = useState<AssigneeProfile | null>(null); // For single assignee
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [newComment, setNewComment] = useState('');
@@ -65,13 +65,13 @@ export default function TaskDetailPage() {
 
     setIsLoading(true);
     setError(null);
-    setAssigneeDetails([]);
+    setAssigneeDetail(null);
 
     try {
       const { data, error: fetchError } = await supabase
         .from('tasks')
         .select(`
-          id, title, description, due_date, created_at, assignee_ids, project_id, priority, status, user_id, comments, logs,
+          id, title, description, due_date, created_at, assignee_id, project_id, priority, status, user_id, comments, logs,
           project:projects (name)
         `)
         .eq('id', taskId)
@@ -91,9 +91,8 @@ export default function TaskDetailPage() {
           description: data.description,
           dueDate: data.due_date,
           createdAt: data.created_at,
-          assignee_ids: data.assignee_ids || [],
+          assignee_id: data.assignee_id, // Single assignee_id
           projectId: data.project_id,
-          // @ts-ignore
           projectName: data.project?.name || 'N/A',
           priority: data.priority as TaskPriority,
           status: data.status as TaskStatus,
@@ -103,19 +102,23 @@ export default function TaskDetailPage() {
         };
         setTask(fetchedTask);
 
-        // Fetch assignee details if there are assignee_ids
-        if (fetchedTask.assignee_ids && fetchedTask.assignee_ids.length > 0) {
-          const { data: profilesData, error: profilesError } = await supabase
+        if (fetchedTask.assignee_id) {
+          const { data: profileData, error: profileError } = await supabase
             .from('profiles')
             .select('id, full_name, avatar_url')
-            .in('id', fetchedTask.assignee_ids);
+            .eq('id', fetchedTask.assignee_id)
+            .single();
 
-          if (profilesError) {
-            console.warn('Error fetching assignee profiles:', profilesError);
-            // Continue without assignee details if fetch fails for profiles
+          if (profileError) {
+            console.warn('Error fetching assignee profile:', profileError);
+            setAssigneeDetail({ id: fetchedTask.assignee_id, name: 'N/A (Profile fetch error)', avatar: undefined });
+          } else if (profileData) {
+            setAssigneeDetail({ id: profileData.id, name: profileData.full_name || 'N/A', avatar: profileData.avatar_url });
           } else {
-            setAssigneeDetails(profilesData.map(p => ({ id: p.id, name: p.full_name || 'N/A', avatar: p.avatar_url })));
+             setAssigneeDetail({ id: fetchedTask.assignee_id, name: 'N/A (Profile not found)', avatar: undefined });
           }
+        } else {
+            setAssigneeDetail(null); // No assignee
         }
 
       } else {
@@ -209,11 +212,10 @@ export default function TaskDetailPage() {
       return;
     }
     
-    // Permission checks
-    const isAssignee = task.assignee_ids?.includes(currentUser.id);
+    const isCurrentUserAssignee = task.assignee_id === currentUser.id;
 
-    if (newStatus === 'Completed' && !(isAssignee && (task.status === 'In Progress' || task.status === 'Pending'))) {
-      toast({ title: "Permission Denied", description: "Only an assignee can mark this task as completed.", variant: "destructive"});
+    if (newStatus === 'Completed' && !(isCurrentUserAssignee && (task.status === 'In Progress' || task.status === 'Pending'))) {
+      toast({ title: "Permission Denied", description: "Only the assignee can mark this task as completed.", variant: "destructive"});
       return;
     }
     if (newStatus === 'Approved' && !(isAdmin && task.status === 'Completed')) {
@@ -236,10 +238,9 @@ export default function TaskDetailPage() {
 
       setTask(prevTask => prevTask ? { ...prevTask, status: newStatus } : null);
       toast({ title: "Status Updated", description: `Task status changed to ${newStatus}.` });
-      // Potentially redirect if admin acts on an approval queue item
-      // if (isAdmin && (newStatus === 'Approved' || (newStatus === 'In Progress' && task.status === 'Completed'))) {
-      //   router.push('/admin/approvals');
-      // }
+       if (isAdmin && (newStatus === 'Approved' || (newStatus === 'In Progress' && task.status === 'Completed'))) {
+         router.push('/admin/approvals'); // Redirect admin after action
+       }
 
     } catch (e: any)
       {
@@ -299,7 +300,7 @@ export default function TaskDetailPage() {
     );
   }
 
-  const isCurrentUserAssignee = currentUser && task.assignee_ids?.includes(currentUser.id);
+  const isCurrentUserAssignee = currentUser && task.assignee_id === currentUser.id;
   const canMarkCompleted = isCurrentUserAssignee && (task.status === 'In Progress' || task.status === 'Pending');
   const canAdminApprove = isAdmin && task.status === 'Completed';
   const canAdminReject = isAdmin && task.status === 'Completed';
@@ -322,20 +323,16 @@ export default function TaskDetailPage() {
         <CardContent className="space-y-4">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
             <div className="flex items-start">
-                <UsersIcon className="w-4 h-4 mr-2 mt-0.5 text-muted-foreground" />
-                <strong>Assignees:</strong>
-                {assigneeDetails.length > 0 ? (
-                  <div className="ml-1 flex flex-wrap gap-1">
-                    {assigneeDetails.map(assignee => (
-                      <Badge key={assignee.id} variant="secondary" className="flex items-center gap-1">
-                        <Avatar className="h-4 w-4" data-ai-hint="user avatar tiny">
-                            <AvatarImage src={assignee.avatar || `https://placehold.co/20x20.png`} />
-                            <AvatarFallback>{assignee.name?.substring(0,1) || 'U'}</AvatarFallback>
-                        </Avatar>
-                        {assignee.name}
-                      </Badge>
-                    ))}
-                  </div>
+                <UserIcon className="w-4 h-4 mr-2 mt-0.5 text-muted-foreground" />
+                <strong>Assignee:</strong>
+                {assigneeDetail ? (
+                  <Badge variant="secondary" className="ml-1 flex items-center gap-1">
+                    <Avatar className="h-4 w-4" data-ai-hint="user avatar tiny">
+                        <AvatarImage src={assigneeDetail.avatar || `https://placehold.co/20x20.png`} />
+                        <AvatarFallback>{assigneeDetail.name?.substring(0,1) || 'U'}</AvatarFallback>
+                    </Avatar>
+                    {assigneeDetail.name}
+                  </Badge>
                 ) : <span className="ml-1">Unassigned</span>}
             </div>
             <div className="flex items-center"><CalendarDays className="w-4 h-4 mr-2 text-muted-foreground" /><strong>Due Date:</strong><span className="ml-1">{task.dueDate ? format(parseISO(task.dueDate), 'PPP') : 'N/A'}</span></div>
@@ -364,7 +361,7 @@ export default function TaskDetailPage() {
       </Card>
 
       <Tabs defaultValue="comments" className="w-full">
-        <TabsList className="grid w-full grid-cols-1 gap-1 sm:grid-cols-2">
+        <TabsList className="grid w-full grid-cols-1 gap-1 sm:grid-cols-2 md:grid-cols-2">
           <TabsTrigger value="comments"><MessageSquare className="w-4 h-4 mr-2 inline-block"/>Comments ({task.comments?.length || 0})</TabsTrigger>
           <TabsTrigger value="logs"><History className="w-4 h-4 mr-2 inline-block"/>Activity Logs ({task.logs?.length || 0})</TabsTrigger>
         </TabsList>

@@ -16,14 +16,13 @@ export interface Task {
   id: string; // uuid
   title: string;
   description: string;
-  assignee_ids?: string[] | null; // Array of User IDs (from profiles table)
-  // assigneeName and assigneeAvatar are no longer single fields; will be handled by fetching multiple profiles
-  assigneeNames?: string[] | null; // Optional: if you denormalize names
-  assigneeAvatars?: (string | undefined)[] | null; // Optional: if you denormalize avatars
+  assignee_id?: string | null; // Single User ID (from profiles table)
+  assigneeName?: string | null; // Denormalized for easy display
+  assigneeAvatar?: string | null; // Denormalized
   dueDate?: string | null; // ISO date string
   priority: TaskPriority;
   project_id: string; // uuid, foreign key to projects table
-  projectName?: string | null; // Denormalized for easy display, fetched separately or via join
+  projectName?: string | null; // Denormalized for easy display
   status: TaskStatus;
   created_at?: string | null; // ISO date string, set by DB
   user_id?: string | null; // uuid, creator (from auth.users)
