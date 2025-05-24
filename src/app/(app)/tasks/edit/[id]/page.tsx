@@ -34,14 +34,13 @@ import { useEffect, useState, useCallback } from 'react';
 
 const taskPriorities: TaskPriority[] = ['Low', 'Medium', 'High'];
 // For editing, an admin might change to any status.
-// For simplicity, providing all user-settable statuses. More granular logic is on the detail page.
 const editableTaskStatuses: TaskStatus[] = ['Pending', 'In Progress', 'Completed', 'Approved'];
 
 
 const editTaskFormSchema = z.object({
   title: z.string().min(3, { message: 'Title must be at least 3 characters.' }),
   description: z.string().min(10, { message: 'Description must be at least 10 characters.' }),
-  assignee_ids: z.array(z.string()).optional(), 
+  assignee_ids: z.array(z.string()).optional(),
   dueDate: z.date({ required_error: 'Due date is required.' }),
   priority: z.enum(taskPriorities),
   project_id: z.string({ required_error: 'Project is required.' }),
@@ -105,7 +104,7 @@ export default function EditTaskPage() {
       if (usersResponse.error) throw usersResponse.error;
       if (projectsResponse.error) throw projectsResponse.error;
       
-      const fetchedTask = taskResponse.data as Task | null;
+      const fetchedTask = taskResponse.data as Task | null; // Explicitly type here
       setTask(fetchedTask);
       setAllUsers(usersResponse.data?.map(u => ({ id: u.id, name: u.full_name || 'Unnamed User' })) || []);
       setProjects(projectsResponse.data || []);
@@ -122,9 +121,10 @@ export default function EditTaskPage() {
         });
       }
     } catch (e: any) {
-      console.error('Error fetching task or related data:', e);
-      setError('Failed to load data. ' + (e.message || 'Unknown error'));
-      toast({ title: 'Error Loading Data', description: e.message, variant: 'destructive' });
+      console.error(`EditTaskPage: Error fetching task or related data. Code: ${e.code}, Message: ${e.message}, Details: ${e.details}, Hint: ${e.hint}`, e);
+      const displayMessage = e.message || e.details || 'Failed to load initial data for editing.';
+      setError(displayMessage);
+      toast({ title: 'Error Loading Data', description: displayMessage, variant: 'destructive' });
     } finally {
       setIsLoadingData(false);
     }
@@ -160,11 +160,11 @@ export default function EditTaskPage() {
     );
   }
   
-  if (error && !task) { // If there was an error and task couldn't be loaded
+  if (error && !task) { 
      return (
       <div className="flex flex-col items-center justify-center h-full text-destructive">
         <AlertTriangle className="h-12 w-12 mb-4" />
-        <h2 className="text-xl font-semibold mb-2">Error Loading Task</h2>
+        <h2 className="text-xl font-semibold mb-2">Error Loading Task for Editing</h2>
         <p>{error}</p>
         <Button onClick={() => router.push('/tasks')} variant="outline" className="mt-4">
           Back to Tasks
@@ -202,7 +202,6 @@ export default function EditTaskPage() {
         priority: values.priority,
         project_id: values.project_id,
         status: values.status,
-        // user_id (creator) should generally not be changed during an edit by another admin
       };
 
       const { error: updateError } = await supabase
@@ -216,12 +215,24 @@ export default function EditTaskPage() {
         title: 'Task Updated',
         description: `Task "${values.title}" has been successfully updated.`,
       });
-      router.push(`/tasks/${task.id}`); // Navigate to task detail page
+      router.push(`/tasks/${task.id}`); 
     } catch (error: any) {
-      console.error('Error updating task:', error);
+      console.error(`Error updating task. Code: ${error.code}, Message: ${error.message}, Details: ${error.details}, Hint: ${error.hint}. Full error object:`, error);
+      let displayMessage = 'An unexpected error occurred. Please try again.';
+      if (error.message) {
+        displayMessage = error.message;
+      } else if (error.details) {
+        displayMessage = error.details;
+      } else {
+        try {
+          displayMessage = JSON.stringify(error);
+        } catch (e) {
+          displayMessage = String(error);
+        }
+      }
       toast({
         title: 'Error Updating Task',
-        description: error.message || 'An unexpected error occurred. Please try again.',
+        description: displayMessage,
         variant: 'destructive',
       });
     } finally {
