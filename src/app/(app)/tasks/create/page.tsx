@@ -19,7 +19,6 @@ import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Calendar } from '@/components/ui/calendar';
-// Removed Checkbox and ScrollArea as we revert to single assignee
 import { CalendarIcon, Loader2, AlertTriangle, Users } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { format } from 'date-fns';
@@ -34,11 +33,10 @@ import { useEffect, useState } from 'react';
 const taskPriorities: TaskPriority[] = ['Low', 'Medium', 'High'];
 const userSettableTaskStatuses: TaskStatus[] = ['Pending', 'In Progress'];
 
-// Reverted schema to single assignee_id
 const formSchema = z.object({
   title: z.string().min(3, { message: 'Title must be at least 3 characters.' }),
   description: z.string().min(10, { message: 'Description must be at least 10 characters.' }),
-  assignee_id: z.string().nullable().optional(), // Single assignee ID, can be null or undefined
+  assignee_id: z.string().nullable().optional(),
   dueDate: z.date({ required_error: 'Due date is required.' }),
   priority: z.enum(taskPriorities),
   project_id: z.string({ required_error: 'Project is required.' }),
@@ -65,9 +63,8 @@ export default function CreateTaskPage() {
       description: '',
       priority: 'Medium',
       status: 'Pending',
-      assignee_id: null, // Initialize as null for single assignee
+      assignee_id: null, 
       project_id: undefined, 
-      // dueDate will be undefined by default, handled by Calendar
     },
   });
 
@@ -160,7 +157,7 @@ export default function CreateTaskPage() {
       const taskToInsert = {
         title: values.title,
         description: values.description,
-        assignee_id: values.assignee_id || null, // Send null if no assignee selected
+        assignee_id: values.assignee_id || null, 
         due_date: values.dueDate.toISOString(),
         priority: values.priority,
         project_id: values.project_id,
@@ -176,9 +173,17 @@ export default function CreateTaskPage() {
 
       if (error) throw error;
 
+      let toastDescription = `Task "${values.title}" has been successfully created.`;
+      if (taskToInsert.assignee_id) {
+        const assignee = allUsers.find(u => u.id === taskToInsert.assignee_id);
+        const assigneeName = assignee ? assignee.name : 'the assignee';
+        console.log(`SIMULATING EMAIL: Task "${values.title}" assigned to ${assigneeName} (ID: ${taskToInsert.assignee_id}). Link: /tasks/${data.id}`);
+        toastDescription += ` ${assigneeName} would be notified.`;
+      }
+
       toast({
         title: 'Task Created',
-        description: `Task "${values.title}" has been successfully created.`,
+        description: toastDescription,
       });
       router.push('/tasks'); 
     } catch (error: any) {
@@ -192,7 +197,6 @@ export default function CreateTaskPage() {
         try {
           displayMessage = JSON.stringify(error);
         } catch (e) {
-          // If stringify fails, just use the string representation of the error
           displayMessage = String(error);
         }
       }
@@ -253,7 +257,7 @@ export default function CreateTaskPage() {
               />
               <FormField
                 control={form.control}
-                name="assignee_id" // Changed from assignee_ids
+                name="assignee_id" 
                 render={({ field }) => (
                   <FormItem>
                     <FormLabel className="flex items-center">
@@ -262,7 +266,7 @@ export default function CreateTaskPage() {
                     </FormLabel>
                     <Select 
                       onValueChange={(value) => field.onChange(value === '_UNASSIGNED_' ? null : value)} 
-                      value={field.value || '_UNASSIGNED_'} // Handle null value for single assignee
+                      value={field.value || '_UNASSIGNED_'} 
                       disabled={allUsers.length === 0}
                     >
                       <FormControl>
