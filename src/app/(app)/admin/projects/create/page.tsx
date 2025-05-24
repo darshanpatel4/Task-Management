@@ -15,6 +15,7 @@ import {
 } from '@/components/ui/form';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'; // Import Select components
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { useAuth } from '@/context/AuthContext';
 import { useRouter } from 'next/navigation';
@@ -22,10 +23,14 @@ import { useToast } from '@/hooks/use-toast';
 import { supabase } from '@/lib/supabaseClient';
 import { Loader2, AlertTriangle } from 'lucide-react';
 import { useState } from 'react';
+import type { ProjectStatus } from '@/types'; // Import ProjectStatus type
+
+const projectStatuses: ProjectStatus[] = ['In Progress', 'Completed', 'On Hold', 'Cancelled'];
 
 const projectFormSchema = z.object({
   name: z.string().min(3, { message: 'Project name must be at least 3 characters.' }).max(100, { message: 'Project name must be 100 characters or less.' }),
   description: z.string().max(500, { message: 'Description must be 500 characters or less.' }).optional(),
+  status: z.enum(projectStatuses, { required_error: 'Project status is required.' }), // Add status to schema
 });
 
 type ProjectFormValues = z.infer<typeof projectFormSchema>;
@@ -41,11 +46,11 @@ export default function CreateProjectPage() {
     defaultValues: {
       name: '',
       description: '',
+      status: 'In Progress', // Default status
     },
   });
 
   if (!isAdmin) {
-    // Should be caught by layout, but good to have a fallback.
     return (
       <div className="flex items-center justify-center h-full">
         <Card className="w-full max-w-md">
@@ -95,7 +100,8 @@ export default function CreateProjectPage() {
           {
             name: values.name,
             description: values.description,
-            user_id: currentUser.id, // Set the creator
+            status: values.status, // Include status
+            user_id: currentUser.id,
           },
         ])
         .select();
@@ -108,7 +114,7 @@ export default function CreateProjectPage() {
         title: 'Project Created',
         description: `Project "${values.name}" has been successfully created.`,
       });
-      router.push('/admin/projects'); // Redirect to projects list
+      router.push('/admin/projects');
     } catch (error: any) {
       console.error('Error creating project:', error);
       toast({
@@ -152,6 +158,28 @@ export default function CreateProjectPage() {
                   <FormControl>
                     <Textarea placeholder="Provide a brief description of the project" {...field} rows={4} />
                   </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+            <FormField
+              control={form.control}
+              name="status"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Status</FormLabel>
+                  <Select onValueChange={field.onChange} defaultValue={field.value}>
+                    <FormControl>
+                      <SelectTrigger>
+                        <SelectValue placeholder="Select project status" />
+                      </SelectTrigger>
+                    </FormControl>
+                    <SelectContent>
+                      {projectStatuses.map(status => (
+                        <SelectItem key={status} value={status}>{status}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
                   <FormMessage />
                 </FormItem>
               )}

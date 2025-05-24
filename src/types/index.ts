@@ -30,12 +30,15 @@ export interface Task {
   logs?: TaskLog[] | null;
 }
 
+export type ProjectStatus = 'In Progress' | 'Completed' | 'On Hold' | 'Cancelled';
+
 export interface Project {
   id: string; // uuid
   name: string;
   description?: string | null;
   user_id?: string | null; // uuid, creator, can be null if user is deleted
   created_at?: string | null; // ISO date string
+  status?: ProjectStatus; // Added project status
 }
 
 export interface TaskLog {

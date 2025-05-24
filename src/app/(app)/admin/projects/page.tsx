@@ -1,13 +1,14 @@
 
 'use client';
 
-import { useState, useEffect, useCallback } from 'react'; // Added useCallback
+import { useState, useEffect, useCallback } from 'react';
 import { useAuth } from '@/context/AuthContext';
-import type { Project } from '@/types';
+import type { Project, ProjectStatus } from '@/types'; // Import ProjectStatus
 import { Button } from '@/components/ui/button';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { PlusCircle, Edit3, Trash2, FolderKanban, Loader2, AlertTriangle } from 'lucide-react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Badge } from '@/components/ui/badge'; // Import Badge
 import { useRouter } from 'next/navigation';
 import { supabase } from '@/lib/supabaseClient';
 import { useToast } from '@/hooks/use-toast';
@@ -22,7 +23,7 @@ export default function ProjectManagementPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  const fetchProjects = useCallback(async () => { // Wrapped in useCallback
+  const fetchProjects = useCallback(async () => {
     if (!supabase) {
       setError("Supabase client is not available. Please check configuration.");
       setIsLoading(false);
@@ -33,7 +34,7 @@ export default function ProjectManagementPage() {
     try {
       const { data, error: supabaseError } = await supabase
         .from('projects')
-        .select('id, name, description, created_at, user_id')
+        .select('id, name, description, created_at, user_id, status') // Added status
         .order('created_at', { ascending: false });
 
       if (supabaseError) {
@@ -51,7 +52,7 @@ export default function ProjectManagementPage() {
     } finally {
       setIsLoading(false);
     }
-  }, [toast]); // Added toast as dependency
+  }, [toast]);
 
   useEffect(() => {
     if (!isAdmin) {
@@ -59,9 +60,9 @@ export default function ProjectManagementPage() {
       return;
     }
     fetchProjects();
-  }, [isAdmin, fetchProjects]); // Added fetchProjects to dependency array
+  }, [isAdmin, fetchProjects]);
 
-  if (!isAdmin && !isLoading) { // Added !isLoading check
+  if (!isAdmin && !isLoading) {
     return (
       <div className="flex items-center justify-center h-full">
           <Card className="w-full max-w-md">
@@ -98,8 +99,6 @@ export default function ProjectManagementPage() {
       });
       return;
     }
-    // Placeholder: This would navigate to an edit project form
-    // Example: router.push(`/admin/projects/edit/${projectId}`);
      toast({
       title: "Edit Project (Not Implemented)",
       description: `Functionality to edit project ${projectId} is not yet implemented.`
@@ -140,6 +139,15 @@ export default function ProjectManagementPage() {
     }
   };
   
+  const getStatusBadgeVariant = (status?: ProjectStatus) => {
+    switch (status) {
+      case 'In Progress': return 'default';
+      case 'Completed': return 'secondary'; // You might want a 'success' variant later
+      case 'On Hold': return 'outline';
+      case 'Cancelled': return 'destructive';
+      default: return 'secondary';
+    }
+  };
 
   return (
     <div className="space-y-6">
@@ -183,6 +191,7 @@ export default function ProjectManagementPage() {
                   <TableRow>
                     <TableHead>Name</TableHead>
                     <TableHead>Description</TableHead>
+                    <TableHead>Status</TableHead> {/* New Status Column Header */}
                     <TableHead>Created At</TableHead>
                     <TableHead className="text-right">Actions</TableHead>
                   </TableRow>
@@ -195,6 +204,11 @@ export default function ProjectManagementPage() {
                         {project.name}
                       </TableCell>
                       <TableCell className="text-muted-foreground max-w-xs sm:max-w-md md:max-w-lg truncate">{project.description || 'No description'}</TableCell>
+                      <TableCell> {/* New Status Cell */}
+                        <Badge variant={getStatusBadgeVariant(project.status)} className="capitalize">
+                          {project.status || 'N/A'}
+                        </Badge>
+                      </TableCell>
                       <TableCell className="text-muted-foreground">
                           {project.created_at ? format(new Date(project.created_at), 'MMM d, yyyy') : 'N/A'}
                       </TableCell>
