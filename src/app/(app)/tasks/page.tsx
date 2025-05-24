@@ -57,11 +57,11 @@ export default function TasksPage() {
 
       let query = supabase
         .from('tasks')
-        .select('id, title, description, due_date, created_at, assignee_ids, project_id, priority, status, user_id, project:projects!inner(name)')
+        .select('id, title, description, due_date, created_at, assignee_id, project_id, priority, status, user_id, project:projects!inner(name)')
         .order('created_at', { ascending: false });
 
       if (!isAdmin && currentUser?.id) {
-        query = query.filter('assignee_ids', 'cs', `{${currentUser.id}}`); // Use contains for array
+        query = query.eq('assignee_id', currentUser.id); 
       }
       if (statusFilter !== 'all') {
         query = query.eq('status', statusFilter);
@@ -86,7 +86,7 @@ export default function TasksPage() {
         description: task.description,
         dueDate: task.due_date,
         createdAt: task.created_at,
-        assignee_ids: task.assignee_ids || [], // Ensure it's an array
+        assignee_id: task.assignee_id, 
         projectId: task.project_id,
         projectName: task.project?.name || 'N/A',
         priority: task.priority as TaskPriority,
@@ -96,7 +96,7 @@ export default function TasksPage() {
       setTasks(mappedTasks);
 
       if (isAdmin && mappedTasks.length > 0) {
-        const allAssigneeIds = [...new Set(mappedTasks.flatMap(t => t.assignee_ids || []).filter(id => id))] as string[];
+        const allAssigneeIds = [...new Set(mappedTasks.map(t => t.assignee_id).filter(id => id))] as string[];
         if (allAssigneeIds.length > 0) {
           const { data: profilesData, error: profilesError } = await supabase
             .from('profiles')
@@ -105,6 +105,7 @@ export default function TasksPage() {
           
           if (profilesError) {
             console.error('TasksPage: Error fetching assignee names:', profilesError);
+            // Decide if this is critical enough to throw or just warn
           } else {
             const namesMap: Record<string, { name: string }> = {};
             profilesData?.forEach(p => { namesMap[p.id] = { name: p.full_name || 'N/A' }; });
@@ -115,9 +116,32 @@ export default function TasksPage() {
 
 
     } catch (e: any) {
-      console.error('Error fetching tasks or projects:', e);
-      setError(e.message || 'Failed to load data.');
-      toast({ title: 'Error', description: e.message || 'Could not load data.', variant: 'destructive' });
+      const supabaseErrorCode = e?.code;
+      const supabaseErrorMessage = e?.message;
+      const supabaseErrorDetails = e?.details;
+      const supabaseErrorHint = e?.hint;
+
+      let displayMessage = 'Failed to load data.';
+      if (supabaseErrorMessage) {
+        displayMessage = supabaseErrorMessage;
+      } else if (supabaseErrorDetails) {
+        displayMessage = supabaseErrorDetails;
+      } else if (typeof e === 'object' && e !== null) {
+        try {
+          displayMessage = JSON.stringify(e); 
+        } catch (stringifyError) {
+          displayMessage = String(e); 
+        }
+      } else if (e) {
+        displayMessage = String(e);
+      }
+      
+      console.error(
+        `TasksPage: Error fetching tasks or related data. Supabase Code: ${supabaseErrorCode}, Message: ${supabaseErrorMessage}, Details: ${supabaseErrorDetails}, Hint: ${supabaseErrorHint}. Processed display message: ${displayMessage}`, e
+      );
+      console.error('TasksPage: Full error object:', e); 
+      setError(displayMessage);
+      toast({ title: 'Error Loading Data', description: displayMessage, variant: 'destructive' });
     } finally {
       setIsLoading(false);
     }
@@ -162,17 +186,19 @@ export default function TasksPage() {
             toast({ title: "Task Deleted", description: `Task ${taskId} has been deleted.` });
             fetchTasksAndRelatedData(); 
         } catch (e: any) {
-            toast({ title: "Error Deleting Task", description: e.message || "Could not delete task.", variant: "destructive" });
+            const displayMessage = e.message || e.details || "Could not delete task.";
+            toast({ title: "Error Deleting Task", description: displayMessage, variant: "destructive" });
         } finally {
-            if (isLoading) setIsLoading(false);
+            // Ensure isLoading is set to false regardless of path, but only if it was set to true for this operation
+            // This global isLoading might be better managed with more granular loading states per action
+            setIsLoading(false); 
         }
     }
   };
 
-  const displayAssignees = (assigneeIds?: string[] | null) => {
-    if (!assigneeIds || assigneeIds.length === 0) return 'Unassigned';
-    if (assigneeIds.length === 1) return assigneeDetailsMap[assigneeIds[0]]?.name || 'Loading...';
-    return `${assigneeIds.length} Assignees`;
+  const displayAssignee = (assigneeId?: string | null) => {
+    if (!assigneeId) return 'Unassigned';
+    return assigneeDetailsMap[assigneeId]?.name || 'Loading...';
   };
 
 
@@ -273,7 +299,7 @@ export default function TasksPage() {
               <TableHeader>
                 <TableRow>
                   <TableHead>Title</TableHead>
-                  {isAdmin && <TableHead>Assignees</TableHead>}
+                  {isAdmin && <TableHead>Assignee</TableHead>}
                   <TableHead>Project</TableHead>
                   <TableHead>Due Date</TableHead>
                   <TableHead>Priority</TableHead>
@@ -287,7 +313,7 @@ export default function TasksPage() {
                     <TableCell className="font-medium max-w-xs truncate">
                       <Link href={`/tasks/${task.id}`} className="hover:underline text-primary">{task.title}</Link>
                     </TableCell>
-                    {isAdmin && <TableCell>{displayAssignees(task.assignee_ids)}</TableCell>}
+                    {isAdmin && <TableCell>{displayAssignee(task.assignee_id)}</TableCell>}
                     <TableCell>{task.projectName || 'N/A'}</TableCell>
                     <TableCell>{task.dueDate ? format(parseISO(task.dueDate), 'MMM d, yyyy') : 'N/A'}</TableCell>
                     <TableCell><Badge variant={getPriorityVariant(task.priority)} className="capitalize">{task.priority}</Badge></TableCell>
@@ -330,3 +356,4 @@ export default function TasksPage() {
     </div>
   );
 }
+
