@@ -19,8 +19,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Calendar } from '@/components/ui/calendar';
-import { Checkbox } from '@/components/ui/checkbox';
-import { ScrollArea } from '@/components/ui/scroll-area';
+// Removed Checkbox and ScrollArea as we revert to single assignee
 import { CalendarIcon, Loader2, AlertTriangle, Users } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { format } from 'date-fns';
@@ -35,11 +34,11 @@ import { useEffect, useState } from 'react';
 const taskPriorities: TaskPriority[] = ['Low', 'Medium', 'High'];
 const userSettableTaskStatuses: TaskStatus[] = ['Pending', 'In Progress'];
 
-
+// Reverted schema to single assignee_id
 const formSchema = z.object({
   title: z.string().min(3, { message: 'Title must be at least 3 characters.' }),
   description: z.string().min(10, { message: 'Description must be at least 10 characters.' }),
-  assignee_ids: z.array(z.string()).optional(), // Array of user IDs, optional
+  assignee_id: z.string().nullable().optional(), // Single assignee ID, can be null or undefined
   dueDate: z.date({ required_error: 'Due date is required.' }),
   priority: z.enum(taskPriorities),
   project_id: z.string({ required_error: 'Project is required.' }),
@@ -66,8 +65,8 @@ export default function CreateTaskPage() {
       description: '',
       priority: 'Medium',
       status: 'Pending',
-      assignee_ids: [], // Initialize as an empty array
-      project_id: undefined, // Or an empty string if your Select handles it
+      assignee_id: null, // Initialize as null for single assignee
+      project_id: undefined, 
       // dueDate will be undefined by default, handled by Calendar
     },
   });
@@ -98,10 +97,11 @@ export default function CreateTaskPage() {
 
       } catch (error: any) {
         console.error('CreateTaskPage: Error fetching users or projects:', error);
-        setDataError('Failed to load necessary data. ' + (error.message || 'Unknown error'));
+        const displayMessage = error.message || error.details || 'Failed to load initial data for task creation.';
+        setDataError(displayMessage);
         toast({
           title: 'Error Loading Data',
-          description: 'Could not load users or projects. Please try again later. ' + (error.message || ''),
+          description: displayMessage,
           variant: 'destructive',
         });
       } finally {
@@ -160,7 +160,7 @@ export default function CreateTaskPage() {
       const taskToInsert = {
         title: values.title,
         description: values.description,
-        assignee_ids: values.assignee_ids && values.assignee_ids.length > 0 ? values.assignee_ids : null, // Send null if empty
+        assignee_id: values.assignee_id || null, // Send null if no assignee selected
         due_date: values.dueDate.toISOString(),
         priority: values.priority,
         project_id: values.project_id,
@@ -182,10 +182,23 @@ export default function CreateTaskPage() {
       });
       router.push('/tasks'); 
     } catch (error: any) {
-      console.error('Error creating task:', error);
+      console.error(`Error creating task. Code: ${error.code}, Message: ${error.message}, Details: ${error.details}, Hint: ${error.hint}. Full error object:`, error);
+      let displayMessage = 'An unexpected error occurred. Please try again.';
+      if (error.message) {
+        displayMessage = error.message;
+      } else if (error.details) {
+        displayMessage = error.details;
+      } else {
+        try {
+          displayMessage = JSON.stringify(error);
+        } catch (e) {
+          // If stringify fails, just use the string representation of the error
+          displayMessage = String(error);
+        }
+      }
       toast({
         title: 'Error Creating Task',
-        description: error.message || 'An unexpected error occurred. Please try again.',
+        description: displayMessage,
         variant: 'destructive',
       });
     } finally {
@@ -240,47 +253,33 @@ export default function CreateTaskPage() {
               />
               <FormField
                 control={form.control}
-                name="assignee_ids"
+                name="assignee_id" // Changed from assignee_ids
                 render={({ field }) => (
                   <FormItem>
                     <FormLabel className="flex items-center">
                       <Users className="mr-2 h-4 w-4 text-muted-foreground" />
-                      Assignees
+                      Assignee
                     </FormLabel>
-                    <FormControl>
-                      <ScrollArea className="h-40 w-full rounded-md border p-2">
+                    <Select 
+                      onValueChange={(value) => field.onChange(value === '_UNASSIGNED_' ? null : value)} 
+                      value={field.value || '_UNASSIGNED_'} // Handle null value for single assignee
+                      disabled={allUsers.length === 0}
+                    >
+                      <FormControl>
+                        <SelectTrigger>
+                          <SelectValue placeholder="Select an assignee" />
+                        </SelectTrigger>
+                      </FormControl>
+                      <SelectContent>
+                        <SelectItem value="_UNASSIGNED_">Unassigned</SelectItem>
                         {allUsers.map((user) => (
-                          <div key={user.id} className="flex items-center space-x-2 py-1">
-                            <Checkbox
-                              id={`assignee-${user.id}`}
-                              checked={(field.value || []).includes(user.id)}
-                              onCheckedChange={(checked) => {
-                                const currentAssignees = field.value || [];
-                                let newAssigneeIds;
-                                if (checked) {
-                                  newAssigneeIds = [...currentAssignees, user.id];
-                                } else {
-                                  newAssigneeIds = currentAssignees.filter(
-                                    (id) => id !== user.id
-                                  );
-                                }
-                                field.onChange(newAssigneeIds); // Always pass an array
-                              }}
-                            />
-                            <label
-                              htmlFor={`assignee-${user.id}`}
-                              className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70"
-                            >
-                              {user.name}
-                            </label>
-                          </div>
+                          <SelectItem key={user.id} value={user.id}>
+                            {user.name}
+                          </SelectItem>
                         ))}
-                        {allUsers.length === 0 && (
-                          <p className="text-sm text-muted-foreground">No users available to assign.</p>
-                        )}
-                      </ScrollArea>
-                    </FormControl>
-                    <FormDescription>Select one or more users to assign to this task.</FormDescription>
+                      </SelectContent>
+                    </Select>
+                    <FormDescription>Select a user to assign to this task.</FormDescription>
                     <FormMessage />
                   </FormItem>
                 )}
@@ -383,4 +382,3 @@ export default function CreateTaskPage() {
     </Card>
   );
 }
-
