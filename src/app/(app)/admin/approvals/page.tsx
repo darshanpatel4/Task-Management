@@ -6,7 +6,7 @@ import { useAuth } from '@/context/AuthContext';
 import type { Task } from '@/types';
 import { Button } from '@/components/ui/button';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { Badge } from '@/components/ui/badge';
+// import { Badge } from '@/components/ui/badge'; // Not used currently
 import { CheckCircle2, XCircle, Eye, Loader2, AlertTriangle } from 'lucide-react';
 import { format, parseISO } from 'date-fns';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -34,40 +34,37 @@ export default function ApprovalsPage() {
     setIsLoading(true);
     setError(null);
     try {
-      // Temporarily simplified query for debugging.
-      // Original query was: .select('*, project:projects(name), assignee_profile:profiles!assignee_id(full_name)')
       const { data, error: supabaseError } = await supabase
         .from('tasks')
-        .select('id, title, status, due_date, created_at, assignee_id, project_id, project:projects(name), assignee_profile:profiles!assignee_id(full_name)') // Restored full query with explicit join for assignee
+        .select('id, title, status, due_date, created_at, assignee_id, project_id, project:projects(name), assignee_profile:profiles!assignee_id(full_name)')
         .eq('status', 'Completed')
         .order('created_at', { ascending: false });
 
       if (supabaseError) {
-        throw supabaseError; // Re-throw to be caught by the detailed catch block
+        throw supabaseError;
       }
 
       const mappedTasks: Task[] = (data || []).map(task => ({
         id: task.id,
         title: task.title,
-        description: task.description, // description will be undefined if not selected, ensure Task type allows optional
+        description: task.description, 
         dueDate: task.due_date,
         createdAt: task.created_at,
-        assigneeName: task.assignee_profile?.full_name || 'N/A',
+        assigneeName: task.assignee_profile?.full_name || 'N/A', // Corrected
         assigneeId: task.assignee_id,
         projectName: task.project?.name || 'N/A',
         projectId: task.project_id,
-        priority: task.priority, // priority will be undefined if not selected
+        priority: task.priority as Task['priority'], 
         status: task.status as Task['status'],
-        // Explicitly undefined for properties not directly from this query or to clean up
-        user_id: task.user_id, // user_id will be undefined if not selected
-        comments: task.comments || [], // comments will be undefined if not selected
-        logs: task.logs || [], // logs will be undefined if not selected
-        project: undefined, // Clean up joined objects
-        assignee_profile: undefined, // Clean up joined objects
+        user_id: task.user_id, 
+        comments: task.comments || [], 
+        logs: task.logs || [], 
+        project: undefined, 
+        assignee_profile: undefined, 
       }));
       setTasks(mappedTasks);
     } catch (e: any) {
-      console.error('Caught error in fetchPendingApprovalTasks. Full error object:', e);
+      // Enhanced error logging
       const supabaseErrorCode = e?.code;
       const supabaseErrorMessage = e?.message;
       const supabaseErrorDetails = e?.details;
@@ -80,17 +77,18 @@ export default function ApprovalsPage() {
         displayMessage = supabaseErrorDetails;
       } else if (typeof e === 'object' && e !== null) {
         try {
-          displayMessage = JSON.stringify(e);
+          displayMessage = JSON.stringify(e); // Try to stringify for more info
         } catch (stringifyError) {
-          displayMessage = String(e);
+          displayMessage = String(e); // Fallback to simple string conversion
         }
       } else if (e) {
         displayMessage = String(e);
       }
       
       console.error(
-        `Error fetching pending approval tasks. Supabase Code: ${supabaseErrorCode}, Message: ${supabaseErrorMessage}, Details: ${supabaseErrorDetails}, Hint: ${supabaseErrorHint}. Processed display message: ${displayMessage}`
+        `Error fetching pending approval tasks. Supabase Code: ${supabaseErrorCode}, Message: ${supabaseErrorMessage}, Details: ${supabaseErrorDetails}, Hint: ${supabaseErrorHint}. Processed display message: ${displayMessage}`, e
       );
+      console.error('Full error object:', e); // Log the full error object
       setError(displayMessage);
       toast({ title: 'Error Fetching Tasks', description: displayMessage, variant: 'destructive' });
     } finally {
@@ -133,7 +131,7 @@ export default function ApprovalsPage() {
       if (updateError) throw updateError;
 
       toast({ title: "Task Approved", description: `Task ID ${taskId} has been approved.`});
-      fetchPendingApprovalTasks();
+      fetchPendingApprovalTasks(); // Refresh list
     } catch (e: any) {
       const displayMessage = e.message || e.details || 'Could not approve task.';
       console.error(`Error approving task. Supabase Code: ${e.code}, Message: ${e.message}, Details: ${e.details}, Hint: ${e.hint}. Full error:`, e);
@@ -149,13 +147,13 @@ export default function ApprovalsPage() {
     try {
       const { error: updateError } = await supabase
         .from('tasks')
-        .update({ status: 'In Progress' })
+        .update({ status: 'In Progress' }) // Send back to 'In Progress'
         .eq('id', taskId);
 
       if (updateError) throw updateError;
 
       toast({ title: "Task Rejected", description: `Task ID ${taskId} has been sent back to 'In Progress'.`, variant: "default"});
-      fetchPendingApprovalTasks();
+      fetchPendingApprovalTasks(); // Refresh list
     } catch (e: any) {
       const displayMessage = e.message || e.details || 'Could not reject task.';
       console.error(`Error rejecting task. Supabase Code: ${e.code}, Message: ${e.message}, Details: ${e.details}, Hint: ${e.hint}. Full error:`, e);
@@ -174,7 +172,7 @@ export default function ApprovalsPage() {
       <Card>
         <CardHeader>
           <CardTitle>Pending Approval Queue</CardTitle>
-          <CardDescription>{!isLoading && !error && tasks.length > 0 ? `There are ${tasks.length} tasks awaiting your approval.` : 'No tasks are currently pending approval.'}</CardDescription>
+          <CardDescription>{!isLoading && !error && tasks.length > 0 ? `There are ${tasks.length} tasks awaiting your approval.` : 'No tasks are currently pending approval or data is loading.'}</CardDescription>
         </CardHeader>
         <CardContent>
           {isLoading && (
@@ -203,7 +201,7 @@ export default function ApprovalsPage() {
                   <TableHead>Title</TableHead>
                   <TableHead>Assignee</TableHead>
                   <TableHead>Project</TableHead>
-                  <TableHead>Completed On</TableHead> {/* This should ideally be a 'completed_at' field if it exists, or use due_date as placeholder */}
+                  <TableHead>Completed On</TableHead>
                   <TableHead className="text-right">Actions</TableHead>
                 </TableRow>
               </TableHeader>
@@ -213,9 +211,9 @@ export default function ApprovalsPage() {
                     <TableCell className="font-medium max-w-xs truncate">
                        <Link href={`/tasks/${task.id}`} className="hover:underline text-primary">{task.title}</Link>
                     </TableCell>
-                    <TableCell>{task.assigneeName || 'N/A'}</TableCell>
-                    <TableCell>{task.projectName || 'N/A'}</TableCell>
-                    <TableCell>{task.dueDate ? format(parseISO(task.dueDate), 'MMM d, yyyy') : 'N/A'}</TableCell>
+                    <TableCell><span>{task.assigneeName || 'N/A'}</span></TableCell>
+                    <TableCell><span>{task.projectName || 'N/A'}</span></TableCell>
+                    <TableCell><span>{task.dueDate ? format(parseISO(task.dueDate), 'MMM d, yyyy') : 'N/A'}</span></TableCell>
                     <TableCell className="text-right">
                       <div className="flex justify-end gap-1">
                         <Link href={`/tasks/${task.id}`}>
