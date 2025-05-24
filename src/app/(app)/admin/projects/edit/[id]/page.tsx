@@ -91,8 +91,9 @@ export default function EditProjectPage() {
       }
     } catch (e: any) {
       console.error('Error fetching project details:', e);
-      setError('Failed to load project details. ' + e.message);
-      toast({ title: 'Error', description: e.message, variant: 'destructive' });
+      const displayMessage = e.message || e.details || 'Failed to load project details.';
+      setError(displayMessage);
+      toast({ title: 'Error Fetching Project', description: displayMessage, variant: 'destructive' });
     } finally {
       setIsLoading(false);
     }
@@ -184,10 +185,33 @@ export default function EditProjectPage() {
       });
       router.push('/admin/projects');
     } catch (error: any) {
-      console.error('Error updating project:', error);
+      // Enhanced error logging
+      const supabaseErrorCode = error?.code;
+      const supabaseErrorMessage = error?.message;
+      const supabaseErrorDetails = error?.details;
+      const supabaseErrorHint = error?.hint;
+
+      let displayMessage = 'An unexpected error occurred. Please try again.';
+      if (supabaseErrorMessage) {
+        displayMessage = supabaseErrorMessage;
+      } else if (supabaseErrorDetails) {
+        displayMessage = supabaseErrorDetails;
+      } else {
+        try {
+          displayMessage = JSON.stringify(error); 
+        } catch (stringifyError) {
+          displayMessage = String(error); 
+        }
+      }
+      
+      console.error(
+        `Error updating project. Supabase Code: ${supabaseErrorCode}, Message: ${supabaseErrorMessage}, Details: ${supabaseErrorDetails}, Hint: ${supabaseErrorHint}. Processed display message: ${displayMessage}`, error
+      );
+      console.error('Full error object during project update:', error); 
+      
       toast({
         title: 'Error Updating Project',
-        description: error.message || 'An unexpected error occurred. Please try again.',
+        description: displayMessage,
         variant: 'destructive',
       });
     } finally {
