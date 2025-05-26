@@ -22,21 +22,16 @@ const mapSupabaseUserToAppUser = (supabaseUser: SupabaseUser | null, profile: an
   if (!supabaseUser) return null;
 
   let role: UserRole = 'User';
-  // Check if profile and profile.role exist and are valid
   if (profile && (profile.role === 'Admin' || profile.role === 'User')) {
     role = profile.role;
   } else if (profile && profile.role) {
-    console.warn(`AuthContext: Unknown role "${profile.role}" for user ${supabaseUser.id}. Defaulting to 'User'.`);
-  } else {
-    // If profile is null or profile.role is missing, default to 'User'
-    // console.log(`AuthContext: Profile role not found for user ${supabaseUser.id}. Defaulting to 'User'.`);
+    console.warn(`AuthContext: mapSupabaseUserToAppUser - Unknown role "${profile.role}" for user ${supabaseUser.id}. Defaulting to 'User'.`);
   }
-
 
   return {
     id: supabaseUser.id,
     name: profile?.full_name || supabaseUser.email?.split('@')[0] || 'User',
-    email: supabaseUser.email || '',
+    email: profile?.email || supabaseUser.email || '', // Prefer email from profile if available
     role: role,
     avatar: profile?.avatar_url || `https://placehold.co/100x100.png?u=${supabaseUser.id}`,
   };
@@ -44,109 +39,115 @@ const mapSupabaseUserToAppUser = (supabaseUser: SupabaseUser | null, profile: an
 
 export const AuthProvider = ({ children }: { children: ReactNode }) => {
   const [currentUser, setCurrentUserStateInternal] = useState<User | null>(null);
-  const [session, setSession] = useState<Session | null>(null);
-  const [loading, setLoading] = useState(true); // Initialize to true
+  const [session, setSessionState] = useState<Session | null>(null);
+  const [loading, setLoadingState] = useState(true); // Initialize true for initial load
   const router = useRouter();
   const pathname = usePathname();
 
   const setCurrentUser = useCallback((user: User | null) => {
     console.log("AuthContext: setCurrentUser explicitly called with:", user ? `${user.email} (Role: ${user.role})` : 'null');
     setCurrentUserStateInternal(user);
-  }, []);
+  }, []); // setCurrentUserStateInternal is stable
 
-  const fetchProfileAndSetUser = useCallback(async (sbUser: SupabaseUser) => {
-    console.log(`AuthContext: fetchProfileAndSetUser called for user ID: ${sbUser.id}`);
+  const setSession = useCallback((newSession: Session | null) => {
+    console.log("AuthContext: setSession called with:", newSession ? `Session for ${newSession.user.id}` : 'null');
+    setSessionState(newSession);
+  }, []); // setSessionState is stable
+
+  const fetchProfileAndSetUser = useCallback(async (sbUser: SupabaseUser, operationTag: string) => {
+    console.log(`AuthContext: ${operationTag} - fetchProfileAndSetUser called for user ID: ${sbUser.id}`);
     if (!supabase) {
-      console.warn("AuthContext: Supabase client not available in fetchProfileAndSetUser.");
+      console.warn(`AuthContext: ${operationTag} - Supabase client not available in fetchProfileAndSetUser.`);
       setCurrentUserStateInternal(mapSupabaseUserToAppUser(sbUser, null));
-      return; // Let the caller handle setLoading(false)
+      return; // Exit early
     }
 
-    console.log(`AuthContext: fetchProfileAndSetUser - BEFORE Supabase call to fetch profile for user ID: ${sbUser.id}`);
+    console.log(`AuthContext: ${operationTag} - BEFORE Supabase call to fetch profile for user ID: ${sbUser.id}`);
     try {
       const { data: profile, error: profileError } = await supabase
         .from('profiles')
-        .select('*')
+        .select('id, full_name, email, role, avatar_url')
         .eq('id', sbUser.id)
         .single();
-      console.log(`AuthContext: fetchProfileAndSetUser - AFTER Supabase call for profile. Error:`, profileError, "Profile Data:", profile);
+
+      console.log(`AuthContext: ${operationTag} - AFTER Supabase call for profile. Error:`, profileError, "Profile Data:", profile);
 
       if (profileError) {
-        console.error(`AuthContext: Error fetching profile for user ${sbUser.id}. Code: ${profileError.code}, Message: ${profileError.message}, Details: ${profileError.details}, Hint: ${profileError.hint}`);
-        console.error('AuthContext: Full profileError object:', profileError);
-        
-        if (profileError.code === 'PGRST116') { // PGRST116 often means "Not found" (0 rows)
-          console.warn(`AuthContext: Profile not found for user ${sbUser.id}. User might exist in auth.users but not in profiles.`);
-          setCurrentUserStateInternal(mapSupabaseUserToAppUser(sbUser, null)); // Use defaults
-        } else { // Other errors
-          setCurrentUserStateInternal(mapSupabaseUserToAppUser(sbUser, { full_name: 'Error User (Profile Fetch Failed)', role: 'User' as UserRole, email: sbUser.email || '' }));
+        console.error(`AuthContext: ${operationTag} - Error fetching profile for user ${sbUser.id}. Code: ${profileError.code}, Message: ${profileError.message}, Details: ${profileError.details}, Hint: ${profileError.hint}`, profileError);
+        if (profileError.code === 'PGRST116') {
+          console.warn(`AuthContext: ${operationTag} - Profile not found for user ${sbUser.id}. User might exist in auth.users but not in profiles.`);
+          setCurrentUserStateInternal(mapSupabaseUserToAppUser(sbUser, null));
+        } else {
+          setCurrentUserStateInternal(mapSupabaseUserToAppUser(sbUser, { full_name: 'Error (Profile Fetch)', role: 'User' as User['role'], email: sbUser.email || '' }));
         }
       } else if (profile) {
-        console.log(`AuthContext: Profile fetched successfully for user ${sbUser.id}:`, profile.email, profile.role);
+        console.log(`AuthContext: ${operationTag} - Profile fetched successfully for user ${sbUser.id}:`, profile.email, profile.role);
         setCurrentUserStateInternal(mapSupabaseUserToAppUser(sbUser, profile));
-      } else { // No error, but no profile data
-        console.warn(`AuthContext: No profile data returned for user ${sbUser.id} (no error but no data). Using defaults.`);
+      } else {
+        console.warn(`AuthContext: ${operationTag} - No profile data returned for user ${sbUser.id} (no error but no data). Using defaults.`);
         setCurrentUserStateInternal(mapSupabaseUserToAppUser(sbUser, null));
       }
-    } catch (e: any) { // Catch unexpected errors during the fetch logic itself
-      console.error(`AuthContext: Unexpected exception fetching profile for user ${sbUser.id}:`, e);
-      setCurrentUserStateInternal(mapSupabaseUserToAppUser(sbUser, { full_name: 'Error User (Exception)', role: 'User' as UserRole, email: sbUser.email || '' }));
+    } catch (e: any) {
+      console.error(`AuthContext: ${operationTag} - Unexpected exception fetching profile for user ${sbUser.id}:`, e);
+      setCurrentUserStateInternal(mapSupabaseUserToAppUser(sbUser, { full_name: 'Error (Exception)', role: 'User' as User['role'], email: sbUser.email || '' }));
     }
-  }, [supabase, setCurrentUserStateInternal]); // setCurrentUserStateInternal from useState is stable
+  }, [supabase, setCurrentUserStateInternal]); // Dependencies for useCallback
 
-  // Initial session check and auth state listener setup
   useEffect(() => {
-    console.log("AuthContext: Main useEffect init. Supabase client available?", !!supabase);
+    console.log("AuthContext: Main useEffect for session and auth state listener. Supabase available?", !!supabase);
     if (!supabase) {
       console.warn("AuthContext: Supabase client not initialized. Auth will be disabled.");
-      setLoading(false);
-      setCurrentUserStateInternal(null);
+      setLoadingState(false); // Directly set state
+      setCurrentUser(null);
+      setSession(null);
       return;
     }
 
-    console.log("AuthContext: Initial session check - Setting loading to true.");
-    setLoading(true); // Set loading true for this async operation
+    const initialLoadTag = "initialLoad";
+    console.log(`AuthContext: ${initialLoadTag} - Setting loading to true.`);
+    setLoadingState(true); // Directly set state
 
     supabase.auth.getSession().then(async ({ data: { session: currentSession } }) => {
-      console.log("AuthContext: getSession() result. Session:", !!currentSession, "User in session:", !!currentSession?.user);
-      setSession(currentSession); // Update session state
+      console.log(`AuthContext: ${initialLoadTag} - getSession() result. Session:`, !!currentSession, "User in session:", !!currentSession?.user);
+      setSession(currentSession);
       if (currentSession?.user) {
-        console.log(`AuthContext: Initial session has user ID: ${currentSession.user.id}. Fetching profile.`);
-        await fetchProfileAndSetUser(currentSession.user);
+        console.log(`AuthContext: ${initialLoadTag} - Initial session has user ID: ${currentSession.user.id}. Fetching profile.`);
+        await fetchProfileAndSetUser(currentSession.user, `${initialLoadTag}-profileFetch`);
       } else {
-        console.log("AuthContext: No active Supabase session found by getSession(). Setting current user to null.");
-        setCurrentUserStateInternal(null);
+        console.log(`AuthContext: ${initialLoadTag} - No active Supabase session by getSession(). Setting current user to null.`);
+        setCurrentUser(null);
       }
     }).catch(error => {
-      console.error("AuthContext: Error in getSession():", error);
-      setCurrentUserStateInternal(null);
+      console.error(`AuthContext: ${initialLoadTag} - Error in getSession():`, error);
+      setCurrentUser(null);
     }).finally(() => {
-      console.log("AuthContext: Initial getSession() promise chain complete. Setting loading to false.");
-      setLoading(false); // Critical: ensure loading is set to false
+      console.log(`AuthContext: ${initialLoadTag} - Initial getSession() promise chain complete. Setting loading to false.`);
+      setLoadingState(false); // Directly set state
     });
 
-    // Auth state change listener
     const { data: authListener } = supabase.auth.onAuthStateChange(
       async (event: AuthChangeEvent, newSession: Session | null) => {
-        console.log(`AuthContext: onAuthStateChange event: ${event}, newSession user ID: ${newSession?.user?.id || 'null'}`);
+        const authEventTag = `onAuthChange-${event}`;
+        console.log(`AuthContext: ${authEventTag} - Event: ${event}, newSession user ID: ${newSession?.user?.id || 'null'}`);
         setSession(newSession);
 
         if (newSession?.user) {
-          console.log("AuthContext: onAuthStateChange - User detected. Setting loading to true and fetching profile.");
-          setLoading(true); // Set loading true for profile fetch operation
+          console.log(`AuthContext: ${authEventTag} - User detected. Setting loading to true before profile fetch.`);
+          setLoadingState(true); // Directly set state
           try {
-            await fetchProfileAndSetUser(newSession.user);
-          } catch (error) { // This catch might be redundant if fetchProfileAndSetUser handles its own errors
-            console.error(`AuthContext: Error during fetchProfileAndSetUser in onAuthStateChange for event ${event}:`, error);
-            setCurrentUserStateInternal(null); // Fallback on error
+            await fetchProfileAndSetUser(newSession.user, `${authEventTag}-profileFetch`);
+          } catch (error) { // This catch is for errors *within* the try block, not fetchProfileAndSetUser's internal errors
+            console.error(`AuthContext: ${authEventTag} - Error in onAuthStateChange block for user ${newSession.user.id}:`, error);
+            setCurrentUser(null); // Fallback on error
           } finally {
-            console.log(`AuthContext: onAuthStateChange (user detected path) finally block. Setting loading to false.`);
-            setLoading(false); // Critical: ensure loading is set to false after profile fetch attempt
+            console.log(`AuthContext: ${authEventTag} (user detected path) finally block. Setting loading to false.`);
+            setLoadingState(false); // Directly set state
           }
         } else { // No user in newSession (e.g., sign out, token revoked)
-          console.log("AuthContext: onAuthStateChange - No user in new session. Setting current user to null. Setting loading to false.");
-          setCurrentUserStateInternal(null);
-          setLoading(false); // Set loading false as this path is synchronous and user is cleared
+          console.log(`AuthContext: ${authEventTag} - No user in new session. Clearing user state.`);
+          setCurrentUser(null);
+          console.log(`AuthContext: ${authEventTag} - No user session. Setting loading to false.`);
+          setLoadingState(false); // Directly set state
         }
       }
     );
@@ -155,41 +156,41 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       console.log("AuthContext: Unsubscribing auth listener.");
       authListener?.subscription.unsubscribe();
     };
-    // Simplified dependencies: these functions/values are stable or their changes are what this effect should react to.
-  }, [supabase, fetchProfileAndSetUser, setCurrentUser, setSession]); // Removed setLoading from deps as it's a setState func
+  }, [supabase, fetchProfileAndSetUser, setCurrentUser, setSession]); // Removed setLoadingState as it's internal
 
-  // Navigation guard
   useEffect(() => {
-    console.log("AuthContext Guard: loading:", loading, "currentUser:", !!currentUser, "pathname:", pathname);
+    // This guard runs whenever currentUser, loading, pathname, or router changes.
+    // console.log("AuthContext Guard: loading:", loading, "currentUser:", !!currentUser, "pathname:", pathname);
     if (!loading && !currentUser && !pathname.startsWith('/auth')) {
-      console.log("AuthContext Guard: User not logged in and not on auth page. Redirecting to /auth/login.");
+      console.log("AuthContext Guard: User not logged in and not on auth page. Redirecting to /auth/login. Current path:", pathname);
       router.push('/auth/login');
     }
   }, [currentUser, loading, pathname, router]);
 
   const logout = async () => {
-    console.log("AuthContext: logout called.");
+    const logoutTag = "logout";
+    console.log(`AuthContext: ${logoutTag} - logout called.`);
     if (supabase) {
-      setLoading(true); // Indicate loading during logout
+      console.log(`AuthContext: ${logoutTag} - Setting loading to true.`);
+      setLoadingState(true); // Directly set state
       const { error } = await supabase.auth.signOut();
       if (error) {
-        console.error('AuthContext: Error logging out with Supabase:', error);
-        setLoading(false); // Reset loading even if signOut errors
+        console.error(`AuthContext: ${logoutTag} - Error logging out with Supabase:`, error);
+        // setLoadingState(false) will be handled by onAuthStateChange when session becomes null
       } else {
-        console.log("AuthContext: Supabase signOut successful.");
-        // setCurrentUserStateInternal(null); // onAuthStateChange will handle this
-        // setSession(null); // onAuthStateChange will handle this
-        // setLoading(false) will be handled by onAuthStateChange after session becomes null
+        console.log(`AuthContext: ${logoutTag} - Supabase signOut successful. onAuthStateChange will handle state update and loading state.`);
       }
+      // Regardless of error, onAuthStateChange should fire with a null session, which will set loading to false.
+      // If signOut errors severely and onAuthStateChange doesn't fire, we might get stuck.
+      // However, usually signOut will lead to onAuthStateChange. If not, then:
+      if (error) setLoadingState(false); // Only set false here if signOut errors and onAuthStateChange might not fire.
     } else {
-       setCurrentUserStateInternal(null);
-       setSession(null);
-       setLoading(false);
+      console.log(`AuthContext: ${logoutTag} - Supabase client not available. Mock logout.`);
+      setCurrentUser(null);
+      setSession(null);
+      console.log(`AuthContext: ${logoutTag} - Mock logout. Setting loading to false.`);
+      setLoadingState(false); // Directly set state
     }
-    // No need to push to /auth/login here if onAuthStateChange handles it,
-    // but doing so ensures immediate redirect attempt.
-    // However, the guard effect will also handle this if currentUser becomes null.
-    // router.push('/auth/login'); // Let the guard handle this to avoid race conditions
   };
   
   const isAdmin = currentUser?.role === 'Admin';
@@ -208,4 +209,3 @@ export const useAuth = () => {
   }
   return context;
 };
-
