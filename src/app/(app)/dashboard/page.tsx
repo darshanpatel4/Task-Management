@@ -16,7 +16,7 @@ import { useRouter, usePathname } from 'next/navigation';
 
 interface DashboardStats {
   totalUsers: number;
-  activeTasks: number; // Changed from totalTasks
+  activeTasks: number;
   pendingApprovals: number;
   activeProjects: number;
 }
@@ -43,7 +43,6 @@ export default function DashboardPage() {
          console.log("Dashboard: Not logged in and not on auth page, redirecting to login.");
         router.push('/auth/login');
       }
-      // Set loading states to false if we skip fetching, to prevent infinite loaders
       setIsLoadingStats(false);
       setIsLoadingTasks(false);
       return;
@@ -60,12 +59,12 @@ export default function DashboardPage() {
         console.log("Dashboard: Admin detected, fetching all stats.");
         const [
           { count: totalUsersCount, error: usersError },
-          { count: activeTasksCount, error: activeTasksError }, // Changed from totalTasksCount
+          { count: activeTasksCount, error: activeTasksError },
           { count: pendingApprovalsCount, error: approvalsError },
           { count: activeProjectsCount, error: projectsError },
         ] = await Promise.all([
           supabase.from('profiles').select('*', { count: 'exact', head: true }),
-          supabase.from('tasks').select('*', { count: 'exact', head: true }).not('status', 'eq', 'Approved'), // Query for active tasks
+          supabase.from('tasks').select('*', { count: 'exact', head: true }).not('status', 'eq', 'Approved'),
           supabase.from('tasks').select('*', { count: 'exact', head: true }).eq('status', 'Completed'),
           supabase.from('projects').select('*', { count: 'exact', head: true }),
         ]);
@@ -78,7 +77,7 @@ export default function DashboardPage() {
         console.log("Dashboard: Admin stats fetched.", { totalUsersCount, activeTasksCount, pendingApprovalsCount, activeProjectsCount });
         setStats({
           totalUsers: totalUsersCount || 0,
-          activeTasks: activeTasksCount || 0, // Changed from totalTasks
+          activeTasks: activeTasksCount || 0,
           pendingApprovals: pendingApprovalsCount || 0,
           activeProjects: activeProjectsCount || 0,
         });
@@ -89,12 +88,12 @@ export default function DashboardPage() {
       console.log("Dashboard: Fetching tasks.");
       let tasksQuery = supabase
         .from('tasks')
-        .select('id, title, description, due_date, created_at, assignee_id, project_id, priority, status, user_id, project:projects!inner(name)')
+        .select('id, title, description, due_date, created_at, assignee_ids, project_id, priority, status, user_id, project:projects!inner(name)')
         .order('created_at', { ascending: false });
 
       if (!isAdmin && currentUser?.id) {
-        tasksQuery = tasksQuery.eq('assignee_id', currentUser.id);
-        console.log(`Dashboard: User task query for assignee_id: ${currentUser.id}.`);
+        tasksQuery = tasksQuery.filter('assignee_ids', 'cs', `{${currentUser.id}}`);
+        console.log(`Dashboard: User task query for assignee_ids containing: ${currentUser.id}.`);
       } else if (isAdmin) {
          tasksQuery = tasksQuery.limit(5); 
          console.log("Dashboard: Admin task query (limit 5).");
@@ -104,8 +103,25 @@ export default function DashboardPage() {
       const { data: tasksData, error: tasksFetchError } = await tasksQuery;
 
       if (tasksFetchError) {
-        console.error('Dashboard: Error fetching tasks:', tasksFetchError);
-        throw new Error(`Tasks fetch: ${tasksFetchError.message} (Code: ${tasksFetchError.code})`);
+        let errorLog = 'Dashboard: Error fetching tasks.\n';
+        errorLog += `  Is Error Object: ${tasksFetchError instanceof Error}\n`;
+        errorLog += `  Code: ${tasksFetchError.code || 'N/A'}\n`;
+        errorLog += `  Message: ${tasksFetchError.message || 'N/A'}\n`;
+        errorLog += `  Details: ${tasksFetchError.details || 'N/A'}\n`;
+        errorLog += `  Hint: ${tasksFetchError.hint || 'N/A'}\n`;
+        try {
+          errorLog += `  JSON.stringify: ${JSON.stringify(tasksFetchError)}\n`;
+        } catch (stringifyError: any) {
+          errorLog += `  JSON.stringify failed: ${stringifyError?.message || String(stringifyError)}\n`;
+        }
+        errorLog += `  Full Object (raw):`;
+        console.error(errorLog, tasksFetchError); // Log the constructed string AND the raw object
+
+        let detailedErrorMessage = `Tasks fetch failed.`;
+        if (tasksFetchError.message) detailedErrorMessage += ` Message: ${tasksFetchError.message}`;
+        if (tasksFetchError.code) detailedErrorMessage += ` Code: ${tasksFetchError.code}`;
+        
+        throw new Error(detailedErrorMessage);
       }
 
       const mappedTasks: Task[] = tasksData?.map(task => ({
@@ -114,8 +130,7 @@ export default function DashboardPage() {
         description: task.description,
         dueDate: task.due_date, 
         createdAt: task.created_at, 
-        assigneeId: task.assignee_id, // Changed from assignee_id to assigneeId
-        assigneeName: task.assignee_id === currentUser?.id ? currentUser.name : (task.assignee_id ? 'Loading...' : 'Unassigned'),
+        assignee_ids: task.assignee_ids,
         projectId: task.project_id,
         projectName: task.project?.name || 'N/A',
         priority: task.priority as TaskPriority,
@@ -129,12 +144,13 @@ export default function DashboardPage() {
       setDisplayedTasks(mappedTasks);
 
       if (isAdmin && mappedTasks.length > 0) {
-        const assigneeIdsToFetch = [...new Set(mappedTasks.map(t => t.assigneeId).filter(id => id))] as string[];
-        if (assigneeIdsToFetch.length > 0) {
+        const allAssigneeIdsInFetchedTasks = mappedTasks.flatMap(t => t.assignee_ids || []).filter((id, index, self) => id && self.indexOf(id) === index);
+
+        if (allAssigneeIdsInFetchedTasks.length > 0) {
           const { data: profilesData, error: profilesError } = await supabase
             .from('profiles')
             .select('id, full_name')
-            .in('id', assigneeIdsToFetch);
+            .in('id', allAssigneeIdsInFetchedTasks);
           
           if (profilesError) {
             console.error('Dashboard: Error fetching assignee names for admin dashboard:', profilesError);
@@ -142,23 +158,19 @@ export default function DashboardPage() {
             const namesMap: Record<string, string> = {};
             profilesData?.forEach(p => { namesMap[p.id] = p.full_name || 'N/A'; });
             setAssigneeNames(namesMap);
-            setDisplayedTasks(prevTasks => prevTasks.map(t => ({
-                ...t,
-                assigneeName: t.assigneeId ? (namesMap[t.assigneeId] || 'N/A') : 'Unassigned'
-            })));
           }
         }
       }
 
     } catch (e: any) {
-      const supabaseErrorCode = e?.code;
-      const supabaseErrorMessage = e?.message;
-      const supabaseErrorDetails = e?.details;
-      const supabaseErrorHint = e?.hint;
-      const displayMessage = supabaseErrorMessage || supabaseErrorDetails || (typeof e === 'string' ? e : 'Could not load dashboard data.');
+      const supabaseErrorCode = e?.code; // This 'e' is the error re-thrown from the tasksFetchError block or other await calls
+      const supabaseErrorMessage = e?.message; // This will be the constructed message from the re-thrown error
+      const supabaseErrorDetails = e?.details; // Likely undefined for the re-thrown error
+      const supabaseErrorHint = e?.hint;     // Likely undefined for the re-thrown error
       
-      console.error(`Dashboard: Overall fetch error. Supabase Code: ${supabaseErrorCode}, Message: ${supabaseErrorMessage}, Details: ${supabaseErrorDetails}, Hint: ${supabaseErrorHint}. Processed display message: ${displayMessage}`, e);
-      console.error('Dashboard: Full error object:', e);
+      let displayMessage = supabaseErrorMessage || (typeof e === 'string' ? e : 'Could not load dashboard data.');
+      
+      console.error(`Dashboard: Overall fetch error. Message: ${displayMessage}. Full error object:`, e);
       setError(displayMessage);
       toast({ title: 'Error Loading Dashboard', description: displayMessage, variant: 'destructive' });
     } finally {
@@ -169,16 +181,23 @@ export default function DashboardPage() {
   }, [currentUser, isAdmin, toast, router, pathname, authLoading, authInitialized]); 
 
   useEffect(() => {
-    if (authInitialized && !authLoading) { // Ensure auth is fully initialized and not loading
+    if (authInitialized && !authLoading) {
         fetchDashboardData();
     } else if (authInitialized && !authLoading && !currentUser && !pathname.startsWith('/auth')) {
-        // This case handles if auth is initialized, not loading, but no user - redirect
         console.log("Dashboard useEffect: Redirecting to login as no user after auth init.");
         router.push('/auth/login');
     } else {
         console.log("Dashboard useEffect: Auth not ready, or already loading. Current authLoading:", authLoading, "authInitialized:", authInitialized);
     }
   }, [authInitialized, authLoading, currentUser, fetchDashboardData, router, pathname]);
+
+  const getAssigneeDisplay = (assigneeIds?: string[] | null): string => {
+    if (!assigneeIds || assigneeIds.length === 0) return 'Unassigned';
+    if (assigneeIds.length === 1) {
+      return assigneeNames[assigneeIds[0]] || assigneeIds[0].substring(0, 8) + '...';
+    }
+    return `${assigneeIds.length} Assignees`;
+  };
 
 
   const getStatusVariant = (status?: Task['status']): "default" | "secondary" | "destructive" | "outline" => {
@@ -226,7 +245,6 @@ export default function DashboardPage() {
   }
   
   if (!currentUser) { 
-    // This should ideally not be reached if authInitialized is true and redirects are working
     return <p>Please log in to view the dashboard.</p>;
   }
 
@@ -261,10 +279,10 @@ export default function DashboardPage() {
           <Card>
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
               <CardTitle className="text-sm font-medium">Active Tasks</CardTitle> 
-              <Activity className="h-4 w-4 text-muted-foreground" /> {/* Changed Icon */}
+              <Activity className="h-4 w-4 text-muted-foreground" />
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold">{stats.activeTasks}</div> {/* Changed from stats.totalTasks */}
+              <div className="text-2xl font-bold">{stats.activeTasks}</div>
               <Link href="/tasks" className="text-xs text-primary hover:underline">
                 View all tasks
               </Link>
@@ -322,13 +340,10 @@ export default function DashboardPage() {
                     <p className="text-sm text-muted-foreground">
                       Project: {task.projectName || 'N/A'} - Due: {task.dueDate ? format(parseISO(task.dueDate), 'PPP') : 'N/A'}
                     </p>
-                    {isAdmin && task.assigneeId && (
+                    {isAdmin && (
                         <p className="text-xs text-muted-foreground">
-                            Assigned to: {assigneeNames[task.assigneeId] || task.assigneeName || 'N/A'}
+                            Assigned to: {getAssigneeDisplay(task.assignee_ids)}
                         </p>
-                    )}
-                     {isAdmin && !task.assigneeId && (
-                        <p className="text-xs text-muted-foreground">Assigned to: Unassigned</p>
                     )}
                   </div>
                   <div className="flex items-center gap-2">
@@ -349,3 +364,5 @@ export default function DashboardPage() {
     </div>
   );
 }
+
+    
