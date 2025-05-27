@@ -8,24 +8,24 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import Link from 'next/link';
-import { ArrowRight, Users, ListChecks, CheckCircle2, FolderKanban, Loader2, AlertTriangle } from 'lucide-react';
-import { format, parseISO } from 'date-fns'; // Ensure parseISO is imported
+import { ArrowRight, Users, ListChecks, CheckCircle2, FolderKanban, Loader2, AlertTriangle, Activity } from 'lucide-react';
+import { format, parseISO } from 'date-fns';
 import { supabase } from '@/lib/supabaseClient';
 import { useToast } from '@/hooks/use-toast';
 import { useRouter, usePathname } from 'next/navigation';
 
 interface DashboardStats {
   totalUsers: number;
-  totalTasks: number;
+  activeTasks: number; // Changed from totalTasks
   pendingApprovals: number;
   activeProjects: number;
 }
 
 export default function DashboardPage() {
-  const { currentUser, isAdmin, loading: authLoading } = useAuth();
+  const { currentUser, isAdmin, loading: authLoading, isInitialized: authInitialized } = useAuth();
   const { toast } = useToast();
-  const router = useRouter(); // Defined for potential use
-  const pathname = usePathname(); // Defined for potential use
+  const router = useRouter();
+  const pathname = usePathname();
 
   const [stats, setStats] = useState<DashboardStats | null>(null);
   const [displayedTasks, setDisplayedTasks] = useState<Task[]>([]);
@@ -36,13 +36,16 @@ export default function DashboardPage() {
 
 
   const fetchDashboardData = useCallback(async () => {
-    if (!currentUser || !supabase) {
-      console.log("Dashboard: currentUser or Supabase client not available. Skipping data fetch.", { hasCurrentUser: !!currentUser, hasSupabase: !!supabase });
-      setIsLoadingStats(false);
-      setIsLoadingTasks(false);
-      if (!authLoading && !currentUser && !pathname.startsWith('/auth')) {
+    console.log("Dashboard: fetchDashboardData called. Auth Initialized:", authInitialized, "Auth Loading:", authLoading, "Has CurrentUser:", !!currentUser, "Has Supabase:", !!supabase);
+    if (!authInitialized || authLoading || !currentUser || !supabase) {
+      console.log("Dashboard: Conditions not met for fetching data. Skipping.");
+      if (authInitialized && !authLoading && !currentUser && !pathname.startsWith('/auth')) {
+         console.log("Dashboard: Not logged in and not on auth page, redirecting to login.");
         router.push('/auth/login');
       }
+      // Set loading states to false if we skip fetching, to prevent infinite loaders
+      setIsLoadingStats(false);
+      setIsLoadingTasks(false);
       return;
     }
 
@@ -57,25 +60,25 @@ export default function DashboardPage() {
         console.log("Dashboard: Admin detected, fetching all stats.");
         const [
           { count: totalUsersCount, error: usersError },
-          { count: totalTasksCount, error: tasksError },
+          { count: activeTasksCount, error: activeTasksError }, // Changed from totalTasksCount
           { count: pendingApprovalsCount, error: approvalsError },
           { count: activeProjectsCount, error: projectsError },
         ] = await Promise.all([
           supabase.from('profiles').select('*', { count: 'exact', head: true }),
-          supabase.from('tasks').select('*', { count: 'exact', head: true }),
+          supabase.from('tasks').select('*', { count: 'exact', head: true }).not('status', 'eq', 'Approved'), // Query for active tasks
           supabase.from('tasks').select('*', { count: 'exact', head: true }).eq('status', 'Completed'),
           supabase.from('projects').select('*', { count: 'exact', head: true }),
         ]);
 
         if (usersError) { console.error('Dashboard: Error fetching users count:', usersError); throw new Error(`Users count: ${usersError.message} (Code: ${usersError.code})`); }
-        if (tasksError) { console.error('Dashboard: Error fetching tasks count:', tasksError); throw new Error(`Tasks count: ${tasksError.message} (Code: ${tasksError.code})`); }
+        if (activeTasksError) { console.error('Dashboard: Error fetching active tasks count:', activeTasksError); throw new Error(`Active tasks count: ${activeTasksError.message} (Code: ${activeTasksError.code})`); }
         if (approvalsError) { console.error('Dashboard: Error fetching approvals count:', approvalsError); throw new Error(`Approvals count: ${approvalsError.message} (Code: ${approvalsError.code})`); }
         if (projectsError) { console.error('Dashboard: Error fetching projects count:', projectsError); throw new Error(`Projects count: ${projectsError.message} (Code: ${projectsError.code})`); }
         
-        console.log("Dashboard: Admin stats fetched.", { totalUsersCount, totalTasksCount, pendingApprovalsCount, activeProjectsCount });
+        console.log("Dashboard: Admin stats fetched.", { totalUsersCount, activeTasksCount, pendingApprovalsCount, activeProjectsCount });
         setStats({
           totalUsers: totalUsersCount || 0,
-          totalTasks: totalTasksCount || 0,
+          activeTasks: activeTasksCount || 0, // Changed from totalTasks
           pendingApprovals: pendingApprovalsCount || 0,
           activeProjects: activeProjectsCount || 0,
         });
@@ -93,7 +96,7 @@ export default function DashboardPage() {
         tasksQuery = tasksQuery.eq('assignee_id', currentUser.id);
         console.log(`Dashboard: User task query for assignee_id: ${currentUser.id}.`);
       } else if (isAdmin) {
-         tasksQuery = tasksQuery.limit(5); // Admin sees recent 5
+         tasksQuery = tasksQuery.limit(5); 
          console.log("Dashboard: Admin task query (limit 5).");
       }
 
@@ -109,16 +112,16 @@ export default function DashboardPage() {
         id: task.id,
         title: task.title,
         description: task.description,
-        dueDate: task.due_date, // Keep as string from DB
-        createdAt: task.created_at, // Keep as string from DB
-        assignee_id: task.assignee_id,
+        dueDate: task.due_date, 
+        createdAt: task.created_at, 
+        assigneeId: task.assignee_id, // Changed from assignee_id to assigneeId
         assigneeName: task.assignee_id === currentUser?.id ? currentUser.name : (task.assignee_id ? 'Loading...' : 'Unassigned'),
         projectId: task.project_id,
         projectName: task.project?.name || 'N/A',
         priority: task.priority as TaskPriority,
         status: task.status as TaskStatus,
         user_id: task.user_id,
-        comments: task.comments || [], // Ensure comments/logs are arrays
+        comments: task.comments || [], 
         logs: task.logs || [],
       })) || [];
       
@@ -126,7 +129,7 @@ export default function DashboardPage() {
       setDisplayedTasks(mappedTasks);
 
       if (isAdmin && mappedTasks.length > 0) {
-        const assigneeIdsToFetch = [...new Set(mappedTasks.map(t => t.assignee_id).filter(id => id))] as string[];
+        const assigneeIdsToFetch = [...new Set(mappedTasks.map(t => t.assigneeId).filter(id => id))] as string[];
         if (assigneeIdsToFetch.length > 0) {
           const { data: profilesData, error: profilesError } = await supabase
             .from('profiles')
@@ -141,28 +144,41 @@ export default function DashboardPage() {
             setAssigneeNames(namesMap);
             setDisplayedTasks(prevTasks => prevTasks.map(t => ({
                 ...t,
-                assigneeName: t.assignee_id ? (namesMap[t.assignee_id] || 'N/A') : 'Unassigned'
+                assigneeName: t.assigneeId ? (namesMap[t.assigneeId] || 'N/A') : 'Unassigned'
             })));
           }
         }
       }
 
     } catch (e: any) {
-      console.error('Dashboard: Overall fetch error:', e);
-      setError(e.message || 'Could not load dashboard data.');
-      toast({ title: 'Error Loading Dashboard', description: e.message || 'Could not load dashboard data.', variant: 'destructive' });
+      const supabaseErrorCode = e?.code;
+      const supabaseErrorMessage = e?.message;
+      const supabaseErrorDetails = e?.details;
+      const supabaseErrorHint = e?.hint;
+      const displayMessage = supabaseErrorMessage || supabaseErrorDetails || (typeof e === 'string' ? e : 'Could not load dashboard data.');
+      
+      console.error(`Dashboard: Overall fetch error. Supabase Code: ${supabaseErrorCode}, Message: ${supabaseErrorMessage}, Details: ${supabaseErrorDetails}, Hint: ${supabaseErrorHint}. Processed display message: ${displayMessage}`, e);
+      console.error('Dashboard: Full error object:', e);
+      setError(displayMessage);
+      toast({ title: 'Error Loading Dashboard', description: displayMessage, variant: 'destructive' });
     } finally {
       console.log("Dashboard: Fetch attempt finished.");
       setIsLoadingStats(false);
       setIsLoadingTasks(false);
     }
-  }, [currentUser, isAdmin, toast, router, pathname, authLoading]); 
+  }, [currentUser, isAdmin, toast, router, pathname, authLoading, authInitialized]); 
 
   useEffect(() => {
-    if (!authLoading) {
+    if (authInitialized && !authLoading) { // Ensure auth is fully initialized and not loading
         fetchDashboardData();
+    } else if (authInitialized && !authLoading && !currentUser && !pathname.startsWith('/auth')) {
+        // This case handles if auth is initialized, not loading, but no user - redirect
+        console.log("Dashboard useEffect: Redirecting to login as no user after auth init.");
+        router.push('/auth/login');
+    } else {
+        console.log("Dashboard useEffect: Auth not ready, or already loading. Current authLoading:", authLoading, "authInitialized:", authInitialized);
     }
-  }, [authLoading, fetchDashboardData]);
+  }, [authInitialized, authLoading, currentUser, fetchDashboardData, router, pathname]);
 
 
   const getStatusVariant = (status?: Task['status']): "default" | "secondary" | "destructive" | "outline" => {
@@ -185,7 +201,7 @@ export default function DashboardPage() {
   };
 
 
-  if (authLoading || (isLoadingStats && isAdmin) || isLoadingTasks) {
+  if (authLoading || !authInitialized || (isLoadingStats && isAdmin) || isLoadingTasks) {
     return (
       <div className="flex justify-center items-center h-64">
         <Loader2 className="h-12 w-12 animate-spin text-primary" />
@@ -199,17 +215,18 @@ export default function DashboardPage() {
       <div className="flex flex-col items-center justify-center h-64 text-destructive">
         <AlertTriangle className="h-12 w-12 mb-4" />
         <h2 className="text-xl font-semibold mb-2">Error Loading Dashboard</h2>
-        <p>{error}</p>
-         <Button variant="outline" onClick={fetchDashboardData} disabled={!currentUser || !supabase}>Try Again</Button>
+        <p className="text-center max-w-md">{error}</p>
+         <Button variant="outline" onClick={fetchDashboardData} disabled={!currentUser || !supabase} className="mt-4">Try Again</Button>
       </div>
     );
   }
   
-  if (!authLoading && !currentUser && !pathname.startsWith('/auth')) { 
+  if (!currentUser && !pathname.startsWith('/auth')) { 
     return <p>Redirecting to login...</p>;
   }
   
   if (!currentUser) { 
+    // This should ideally not be reached if authInitialized is true and redirects are working
     return <p>Please log in to view the dashboard.</p>;
   }
 
@@ -243,11 +260,11 @@ export default function DashboardPage() {
           </Card>
           <Card>
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Total Tasks</CardTitle>
-              <ListChecks className="h-4 w-4 text-muted-foreground" />
+              <CardTitle className="text-sm font-medium">Active Tasks</CardTitle> 
+              <Activity className="h-4 w-4 text-muted-foreground" /> {/* Changed Icon */}
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold">{stats.totalTasks}</div>
+              <div className="text-2xl font-bold">{stats.activeTasks}</div> {/* Changed from stats.totalTasks */}
               <Link href="/tasks" className="text-xs text-primary hover:underline">
                 View all tasks
               </Link>
@@ -305,12 +322,12 @@ export default function DashboardPage() {
                     <p className="text-sm text-muted-foreground">
                       Project: {task.projectName || 'N/A'} - Due: {task.dueDate ? format(parseISO(task.dueDate), 'PPP') : 'N/A'}
                     </p>
-                    {isAdmin && task.assignee_id && (
+                    {isAdmin && task.assigneeId && (
                         <p className="text-xs text-muted-foreground">
-                            Assigned to: {assigneeNames[task.assignee_id] || task.assigneeName || 'N/A'}
+                            Assigned to: {assigneeNames[task.assigneeId] || task.assigneeName || 'N/A'}
                         </p>
                     )}
-                     {isAdmin && !task.assignee_id && (
+                     {isAdmin && !task.assigneeId && (
                         <p className="text-xs text-muted-foreground">Assigned to: Unassigned</p>
                     )}
                   </div>
@@ -332,5 +349,3 @@ export default function DashboardPage() {
     </div>
   );
 }
-
-    
