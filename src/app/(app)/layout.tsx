@@ -1,12 +1,12 @@
 
-'use client'; // This layout uses client-side hooks like useAuth and useSidebar
+'use client';
 
 import { AppHeader } from '@/components/layout/AppHeader';
 import { AppSidebar } from '@/components/layout/AppSidebar';
 import { SidebarProvider, SidebarInset } from '@/components/ui/sidebar';
 import { useAuth } from '@/context/AuthContext';
 import { useRouter, usePathname } from 'next/navigation';
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 import { Loader2 } from 'lucide-react';
 
 export default function AppLayout({
@@ -18,19 +18,18 @@ export default function AppLayout({
   const router = useRouter();
   const pathname = usePathname();
 
-  // Log the loading state received by AppLayout
-  console.log(`AppLayout: Received states - isInitialized: ${isInitialized}, authLoading: ${authLoading}, currentUser: ${!!currentUser}`);
+  console.log(`AppLayout: Render - isInitialized: ${isInitialized}, authLoading (context.loading): ${authLoading}, currentUser: ${!!currentUser}, pathname: ${pathname}`);
 
   useEffect(() => {
     console.log(`AppLayout useEffect for redirect check: isInitialized: ${isInitialized}, authLoading: ${authLoading}, currentUser: ${!!currentUser}, pathname: ${pathname}`);
     if (isInitialized && !authLoading && !currentUser && !pathname.startsWith('/auth')) {
-      console.log('AppLayout: Redirecting to /auth/login due to no user and not on auth page after initialization.');
+      console.log('AppLayout: Redirecting to /auth/login because not initialized, no user, and not on auth page.');
       router.replace('/auth/login');
     }
   }, [currentUser, authLoading, isInitialized, router, pathname]);
 
   if (!isInitialized || authLoading) {
-    console.log("AppLayout: Rendering main loader because app is not initialized or auth is loading.");
+    console.log(`AppLayout: Showing main loader because !isInitialized (${!isInitialized}) OR authLoading (${authLoading})`);
     return (
       <div className="flex h-screen w-full items-center justify-center bg-background">
         <Loader2 className="h-12 w-12 animate-spin text-primary" />
@@ -39,10 +38,10 @@ export default function AppLayout({
     );
   }
 
-  if (!currentUser && !pathname.startsWith('/auth')) {
-    // This case should ideally be caught by the useEffect redirect.
-    // If we reach here, it's a brief moment before redirect or if the redirect logic fails.
-    console.log("AppLayout: No current user and not on auth path, rendering redirecting message (should be temporary).");
+  // This case should ideally be handled by the useEffect redirect or covered by the above.
+  // If isInitialized is true, and authLoading is false, but there's still no currentUser, redirect.
+  if (isInitialized && !authLoading && !currentUser && !pathname.startsWith('/auth')) {
+    console.log("AppLayout: Rendering redirecting message (should be caught by useEffect redirect).");
     return (
       <div className="flex h-screen w-full items-center justify-center bg-background">
         <Loader2 className="h-12 w-12 animate-spin text-primary" />
@@ -51,7 +50,6 @@ export default function AppLayout({
     );
   }
   
-  // If initialized, not authLoading, AND currentUser exists (or on an auth page), render the app
   console.log("AppLayout: Rendering main app content.");
   return (
     <SidebarProvider defaultOpen={true}>
@@ -65,3 +63,5 @@ export default function AppLayout({
     </SidebarProvider>
   );
 }
+
+    
