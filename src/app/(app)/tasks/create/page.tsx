@@ -19,7 +19,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Calendar } from '@/components/ui/calendar';
-import { CalendarIcon, Loader2, AlertTriangle, Users } from 'lucide-react';
+import { CalendarIcon, Loader2, AlertTriangle, Users, ChevronDown } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { format } from 'date-fns';
 import { useAuth } from '@/context/AuthContext';
@@ -29,15 +29,24 @@ import { useToast } from '@/hooks/use-toast';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { supabase } from '@/lib/supabaseClient';
 import { useEffect, useState } from 'react';
+import { Checkbox } from '@/components/ui/checkbox';
+import { ScrollArea } from '@/components/ui/scroll-area';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuCheckboxItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
 
 const taskPriorities: TaskPriority[] = ['Low', 'Medium', 'High'];
 const userSettableTaskStatuses: TaskStatus[] = ['Pending', 'In Progress'];
-const UNASSIGNED_VALUE = '_UNASSIGNED_'; // Constant for unassigned state
 
 const formSchema = z.object({
   title: z.string().min(3, { message: 'Title must be at least 3 characters.' }),
   description: z.string().min(10, { message: 'Description must be at least 10 characters.' }),
-  assignee_id: z.string().nullable().optional(), // Single assignee
+  assignee_ids: z.array(z.string()).optional().default([]), // Array of assignee IDs
   dueDate: z.date({ required_error: 'Due date is required.' }),
   priority: z.enum(taskPriorities),
   project_id: z.string({ required_error: 'Project is required.' }),
@@ -64,7 +73,7 @@ export default function CreateTaskPage() {
       description: '',
       priority: 'Medium',
       status: 'Pending',
-      assignee_id: null, 
+      assignee_ids: [], 
       project_id: undefined, 
     },
   });
@@ -109,6 +118,91 @@ export default function CreateTaskPage() {
     fetchData();
   }, [isAdmin, toast]);
 
+  const getAssigneeButtonLabel = (selectedIds: string[] | undefined) => {
+    if (!selectedIds || selectedIds.length === 0) {
+      return "Select assignees";
+    }
+    if (selectedIds.length === 1) {
+      const user = allUsers.find(u => u.id === selectedIds[0]);
+      return user ? user.name : "1 user selected";
+    }
+    return `${selectedIds.length} users selected`;
+  };
+
+  async function onSubmit(values: TaskFormValues) {
+    if (!currentUser || !supabase) {
+      toast({
+        title: 'Error',
+        description: 'User not authenticated or Supabase not available.',
+        variant: 'destructive',
+      });
+      return;
+    }
+    
+    setIsSubmitting(true);
+    try {
+      const taskToInsert = {
+        title: values.title,
+        description: values.description,
+        assignee_ids: values.assignee_ids && values.assignee_ids.length > 0 ? values.assignee_ids : null,
+        due_date: values.dueDate.toISOString(),
+        priority: values.priority,
+        project_id: values.project_id,
+        status: values.status,
+        user_id: currentUser.id, 
+      };
+
+      const { data, error } = await supabase
+        .from('tasks')
+        .insert([taskToInsert])
+        .select()
+        .single(); 
+
+      if (error) throw error;
+
+      let toastDescription = `Task "${values.title}" has been successfully created.`;
+      
+      if (taskToInsert.assignee_ids && taskToInsert.assignee_ids.length > 0) {
+        const selectedAssignees = allUsers.filter(u => taskToInsert.assignee_ids!.includes(u.id));
+        if (selectedAssignees.length > 0) {
+          const assigneeNames = selectedAssignees.map(a => a.name).join(', ');
+          toastDescription += ` Assigned to ${assigneeNames}. They would be notified.`;
+          selectedAssignees.forEach(assignee => {
+            console.log(`SIMULATING EMAIL: Task "${values.title}" assigned to ${assignee.name} (ID: ${assignee.id}). Link: /tasks/${data.id}`);
+            // TODO: Future - Insert into notifications table
+            // await supabase.from('notifications').insert({ user_id: assignee.id, message: `You've been assigned task: ${values.title}`, link: `/tasks/${data.id}`, type: 'task_assigned' });
+          });
+        }
+      }
+
+      toast({
+        title: 'Task Created',
+        description: toastDescription,
+      });
+      router.push('/tasks'); 
+    } catch (error: any) {
+      console.error(`Error creating task. Code: ${error.code}, Message: ${error.message}, Details: ${error.details}, Hint: ${error.hint}. Full error object:`, error);
+      let displayMessage = 'An unexpected error occurred. Please try again.';
+      if (error.message) {
+        displayMessage = error.message;
+      } else if (error.details) {
+        displayMessage = error.details;
+      } else {
+        try {
+          displayMessage = JSON.stringify(error);
+        } catch (e) {
+          displayMessage = String(error);
+        }
+      }
+      toast({
+        title: 'Error Creating Task',
+        description: displayMessage,
+        variant: 'destructive',
+      });
+    } finally {
+      setIsSubmitting(false);
+    }
+  }
 
   if (!isAdmin && !isLoadingData && dataError?.includes("Access Denied")) {
     return (
@@ -140,78 +234,6 @@ export default function CreateTaskPage() {
             </Card>
         </div>
     );
-  }
-
-
-  async function onSubmit(values: TaskFormValues) {
-    if (!currentUser || !supabase) {
-      toast({
-        title: 'Error',
-        description: 'User not authenticated or Supabase not available.',
-        variant: 'destructive',
-      });
-      return;
-    }
-    
-    setIsSubmitting(true);
-    try {
-      const taskToInsert = {
-        title: values.title,
-        description: values.description,
-        assignee_id: values.assignee_id === UNASSIGNED_VALUE ? null : values.assignee_id,
-        due_date: values.dueDate.toISOString(),
-        priority: values.priority,
-        project_id: values.project_id,
-        status: values.status,
-        user_id: currentUser.id, 
-      };
-
-      const { data, error } = await supabase
-        .from('tasks')
-        .insert([taskToInsert])
-        .select()
-        .single(); 
-
-      if (error) throw error;
-
-      let toastDescription = `Task "${values.title}" has been successfully created.`;
-      if (taskToInsert.assignee_id) {
-        const assignee = allUsers.find(u => u.id === taskToInsert.assignee_id);
-        if (assignee) {
-             console.log(`SIMULATING EMAIL: Task "${values.title}" assigned to ${assignee.name} (ID: ${assignee.id}). Link: /tasks/${data.id}`);
-             toastDescription += ` ${assignee.name} would be notified.`;
-             // TODO: Future - Insert into notifications table
-             // await supabase.from('notifications').insert({ user_id: assignee.id, message: `You've been assigned task: ${values.title}`, link: `/tasks/${data.id}`, type: 'task_assigned' });
-        }
-      }
-
-      toast({
-        title: 'Task Created',
-        description: toastDescription,
-      });
-      router.push('/tasks'); 
-    } catch (error: any) {
-      console.error(`Error creating task. Code: ${error.code}, Message: ${error.message}, Details: ${error.details}, Hint: ${error.hint}. Full error object:`, error);
-      let displayMessage = 'An unexpected error occurred. Please try again.';
-      if (error.message) {
-        displayMessage = error.message;
-      } else if (error.details) {
-        displayMessage = error.details;
-      } else {
-        try {
-          displayMessage = JSON.stringify(error);
-        } catch (e) {
-          displayMessage = String(error);
-        }
-      }
-      toast({
-        title: 'Error Creating Task',
-        description: displayMessage,
-        variant: 'destructive',
-      });
-    } finally {
-      setIsSubmitting(false);
-    }
   }
 
   return (
@@ -261,33 +283,44 @@ export default function CreateTaskPage() {
               />
               <FormField
                 control={form.control}
-                name="assignee_id"
+                name="assignee_ids"
                 render={({ field }) => (
                   <FormItem>
                     <FormLabel className="flex items-center">
                       <Users className="mr-2 h-4 w-4 text-muted-foreground" />
-                      Assignee
+                      Assignees
                     </FormLabel>
-                    <Select
-                      onValueChange={(value) => field.onChange(value === UNASSIGNED_VALUE ? null : value)}
-                      value={field.value || UNASSIGNED_VALUE}
-                      disabled={allUsers.length === 0}
-                    >
-                      <FormControl>
-                        <SelectTrigger>
-                          <SelectValue placeholder="Select an assignee" />
-                        </SelectTrigger>
-                      </FormControl>
-                      <SelectContent>
-                        <SelectItem value={UNASSIGNED_VALUE}>Unassigned</SelectItem>
-                        {allUsers.map((user) => (
-                          <SelectItem key={user.id} value={user.id}>
-                            {user.name}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                    <FormDescription>Select a user to assign to this task.</FormDescription>
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <Button variant="outline" className="w-full justify-between">
+                          {getAssigneeButtonLabel(field.value)}
+                          <ChevronDown className="ml-2 h-4 w-4" />
+                        </Button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent className="w-[--radix-dropdown-menu-trigger-width]">
+                        <DropdownMenuLabel>Select Assignees</DropdownMenuLabel>
+                        <DropdownMenuSeparator />
+                        <ScrollArea className="h-48">
+                          {allUsers.length > 0 ? allUsers.map((user) => (
+                            <DropdownMenuCheckboxItem
+                              key={user.id}
+                              checked={(field.value || []).includes(user.id)}
+                              onCheckedChange={(checked) => {
+                                const currentAssigneeIds = field.value || [];
+                                const newAssigneeIds = checked
+                                  ? [...currentAssigneeIds, user.id]
+                                  : currentAssigneeIds.filter((id) => id !== user.id);
+                                field.onChange(newAssigneeIds);
+                              }}
+                              onSelect={(e) => e.preventDefault()} // Prevent closing dropdown on item click
+                            >
+                              {user.name}
+                            </DropdownMenuCheckboxItem>
+                          )) : <DropdownMenuItem disabled>No users available</DropdownMenuItem>}
+                        </ScrollArea>
+                      </DropdownMenuContent>
+                    </DropdownMenu>
+                    <FormDescription>Select users to assign to this task.</FormDescription>
                     <FormMessage />
                   </FormItem>
                 )}
