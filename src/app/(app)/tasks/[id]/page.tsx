@@ -38,8 +38,7 @@ export default function TaskDetailPage() {
   const { toast } = useToast();
 
   const [task, setTask] = useState<Task | null>(null);
-  const [assigneeDetails, setAssigneeDetails] = useState<AssigneeProfileDisplay[]>([]); // For multi-assignee display if schema changes
-  const [singleAssigneeDetail, setSingleAssigneeDetail] = useState<AssigneeProfileDisplay | null>(null); // For single assignee
+  const [assigneeDetails, setAssigneeDetails] = useState<AssigneeProfileDisplay[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [newComment, setNewComment] = useState('');
@@ -66,14 +65,13 @@ export default function TaskDetailPage() {
 
     setIsLoading(true);
     setError(null);
-    setAssigneeDetails([]); // Clear previous multi-assignee details
-    setSingleAssigneeDetail(null); // Clear previous single assignee detail
+    setAssigneeDetails([]); 
 
     try {
       const { data, error: fetchError } = await supabase
         .from('tasks')
         .select(`
-          id, title, description, due_date, created_at, assignee_id, project_id, priority, status, user_id, comments, logs,
+          id, title, description, due_date, created_at, assignee_ids, project_id, priority, status, user_id, comments, logs,
           project:projects (name)
         `)
         .eq('id', taskId)
@@ -93,7 +91,7 @@ export default function TaskDetailPage() {
           description: data.description,
           dueDate: data.due_date,
           createdAt: data.created_at,
-          assignee_id: data.assignee_id, // Keep singular assignee_id
+          assignee_ids: data.assignee_ids, 
           projectId: data.project_id,
           projectName: data.project?.name || 'N/A',
           priority: data.priority as TaskPriority,
@@ -104,19 +102,17 @@ export default function TaskDetailPage() {
         };
         setTask(fetchedTask);
 
-        // Fetch single assignee detail if assignee_id exists
-        if (fetchedTask.assignee_id) {
-          const { data: profileData, error: profileError } = await supabase
+        if (fetchedTask.assignee_ids && fetchedTask.assignee_ids.length > 0) {
+          const { data: profilesData, error: profilesError } = await supabase
             .from('profiles')
             .select('id, full_name, avatar_url')
-            .eq('id', fetchedTask.assignee_id)
-            .single();
+            .in('id', fetchedTask.assignee_ids);
 
-          if (profileError) {
-            console.warn(`Error fetching profile for assignee ${fetchedTask.assignee_id}:`, profileError);
-            setSingleAssigneeDetail({ id: fetchedTask.assignee_id, name: 'N/A (Profile Error)', avatar: undefined });
-          } else if (profileData) {
-            setSingleAssigneeDetail({ id: profileData.id, name: profileData.full_name || 'N/A', avatar: profileData.avatar_url });
+          if (profilesError) {
+            console.warn(`Error fetching profiles for assignees ${fetchedTask.assignee_ids.join(', ')}:`, profilesError);
+            setAssigneeDetails(fetchedTask.assignee_ids.map(id => ({ id, name: 'N/A (Profile Error)', avatar: undefined })));
+          } else if (profilesData) {
+            setAssigneeDetails(profilesData.map(p => ({ id: p.id, name: p.full_name || 'N/A', avatar: p.avatar_url })));
           }
         }
       } else {
@@ -227,18 +223,18 @@ export default function TaskDetailPage() {
   };
 
   const handleUpdateStatus = async (newStatus: TaskStatus) => {
-    console.log('TaskDetailPage: handleUpdateStatus called with:', { newStatus, taskId: task?.id, currentStatus: task?.status, currentUserId: currentUser?.id, taskAssigneeId: task?.assignee_id, isAdmin });
+    console.log('TaskDetailPage: handleUpdateStatus called with:', { newStatus, taskId: task?.id, currentStatus: task?.status, currentUserId: currentUser?.id, taskAssigneeIds: task?.assignee_ids, isAdmin });
     if (!task || !supabase || !currentUser) {
       toast({ title: "Error", description: "Task or user data missing for status update.", variant: "destructive"});
       console.error('TaskDetailPage: handleUpdateStatus - Pre-condition failed (task, supabase, or currentUser missing).');
       return;
     }
     
-    const isCurrentUserAnAssigneeForThisAction = currentUser && task.assignee_id === currentUser.id;
+    const isCurrentUserAnAssigneeForThisAction = currentUser && task.assignee_ids && task.assignee_ids.includes(currentUser.id);
 
     if (newStatus === 'Completed') {
       if (!isCurrentUserAnAssigneeForThisAction || !(task.status === 'In Progress' || task.status === 'Pending')) {
-        toast({ title: "Permission Denied", description: "Only the assignee can mark this task as 'Completed' when it's 'In Progress' or 'Pending'.", variant: "destructive"});
+        toast({ title: "Permission Denied", description: "Only an assignee can mark this task as 'Completed' when it's 'In Progress' or 'Pending'.", variant: "destructive"});
         console.log('TaskDetailPage: handleUpdateStatus - "Completed" permission denied.');
         return;
       }
@@ -254,13 +250,14 @@ export default function TaskDetailPage() {
           console.log('TaskDetailPage: handleUpdateStatus - Admin reject permission denied.');
           return;
         }
-    } else if (newStatus === 'In Progress' && task.status !== 'Completed' && task.status !== 'Pending') {
+    } else if (newStatus === 'In Progress' && task.status !== 'Completed' && task.status !== 'Pending') { // User starting a pending task
         if (!isCurrentUserAnAssigneeForThisAction && !isAdmin) {
             toast({ title: "Permission Denied", description: "You cannot change the task to 'In Progress'.", variant: "destructive"});
             console.log('TaskDetailPage: handleUpdateStatus - "In Progress" general permission denied.');
             return;
         }
     }
+
 
     setIsUpdatingStatus(true);
     try {
@@ -281,8 +278,6 @@ export default function TaskDetailPage() {
          router.push('/admin/approvals'); 
        }
     } catch (e: any) {
-      // This console.error will now catch errors thrown from the Supabase call directly
-      // or if 'throw updateError' was executed.
       console.error(`TaskDetailPage: Catch block for handleUpdateStatus to ${newStatus}. Code: ${e.code}, Message: ${e.message}, Details: ${e.details}, Hint: ${e.hint}`, e);
       let displayMessage = e.message || e.details || `Could not update task status to ${newStatus}.`;
       toast({ title: 'Error Updating Status', description: displayMessage, variant: 'destructive' });
@@ -340,15 +335,15 @@ export default function TaskDetailPage() {
     );
   }
 
-  // Permission checks for UI elements
-  const isCurrentUserAnAssignee = currentUser && task.assignee_id === currentUser.id;
+  const isCurrentUserAnAssignee = currentUser && task.assignee_ids && task.assignee_ids.includes(currentUser.id);
   const canMarkCompleted = isCurrentUserAnAssignee && (task.status === 'In Progress' || task.status === 'Pending');
   const canAdminApprove = isAdmin && task.status === 'Completed';
   const canAdminReject = isAdmin && task.status === 'Completed';
   const canLogTime = isCurrentUserAnAssignee && (task.status === 'In Progress' || task.status === 'Pending');
+  const canStartTask = isCurrentUserAnAssignee && task.status === 'Pending';
 
-  // Log for debugging button visibility
-  console.log('TaskDetailPage Render:', { taskId: task?.id, currentUserRole: currentUser?.role, currentUserId: currentUser?.id, taskAssigneeId: task?.assignee_id, taskStatus: task?.status, isCurrentUserAnAssignee, canMarkCompleted, isAdmin, canAdminApprove, canAdminReject, canLogTime });
+
+  console.log('TaskDetailPage Render:', { taskId: task?.id, currentUserRole: currentUser?.role, currentUserId: currentUser?.id, taskAssigneeIds: task?.assignee_ids, taskStatus: task?.status, isCurrentUserAnAssignee, canMarkCompleted, isAdmin, canAdminApprove, canAdminReject, canLogTime });
 
 
   return (
@@ -368,17 +363,19 @@ export default function TaskDetailPage() {
         <CardContent className="space-y-4">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
             <div className="flex items-start">
-                <UserIcon className="w-4 h-4 mr-2 mt-0.5 text-muted-foreground flex-shrink-0" />
-                <strong className="mr-1 flex-shrink-0">Assignee:</strong>
+                <Users className="w-4 h-4 mr-2 mt-0.5 text-muted-foreground flex-shrink-0" />
+                <strong className="mr-1 flex-shrink-0">Assignees:</strong>
                 <div className="flex flex-wrap gap-1 items-center">
-                  {singleAssigneeDetail ? (
-                      <Badge variant="outline" className="flex items-center gap-1 px-2 py-0.5">
-                        <Avatar className="h-4 w-4" data-ai-hint="user avatar tiny">
-                            <AvatarImage src={singleAssigneeDetail.avatar || `https://placehold.co/20x20.png`} />
-                            <AvatarFallback className="text-xs">{singleAssigneeDetail.name?.substring(0,1) || 'U'}</AvatarFallback>
-                        </Avatar>
-                        <span className="text-xs">{singleAssigneeDetail.name}</span>
-                      </Badge>
+                  {assigneeDetails.length > 0 ? (
+                      assigneeDetails.map(assignee => (
+                        <Badge key={assignee.id} variant="outline" className="flex items-center gap-1 px-2 py-0.5">
+                          <Avatar className="h-4 w-4" data-ai-hint="user avatar tiny">
+                              <AvatarImage src={assignee.avatar || `https://placehold.co/20x20.png`} />
+                              <AvatarFallback className="text-xs">{assignee.name?.substring(0,1) || 'U'}</AvatarFallback>
+                          </Avatar>
+                          <span className="text-xs">{assignee.name}</span>
+                        </Badge>
+                      ))
                   ) : <span className="ml-1 text-muted-foreground">Unassigned</span>}
                 </div>
             </div>
@@ -394,6 +391,9 @@ export default function TaskDetailPage() {
         <CardFooter className="flex flex-col sm:flex-row justify-end items-center gap-2 pt-4 border-t">
           {isAdmin && (
             <Button variant="outline" onClick={() => router.push(`/tasks/edit/${task.id}`)} disabled={isUpdatingStatus || !supabase}><Edit3 className="mr-2 h-4 w-4" /> Edit Task (Admin)</Button>
+          )}
+          {canStartTask && (
+            <Button onClick={() => handleUpdateStatus('In Progress')} disabled={isUpdatingStatus || !supabase}>Start Task</Button>
           )}
           {canMarkCompleted && (
             <Button onClick={() => handleUpdateStatus('Completed')} disabled={isUpdatingStatus || !supabase}><CheckCircle className="mr-2 h-4 w-4" /> Mark as Completed</Button>
@@ -516,3 +516,5 @@ export default function TaskDetailPage() {
     </div>
   );
 }
+
+    
