@@ -5,7 +5,7 @@ import Link from 'next/link';
 import { SidebarTrigger, useSidebar } from '@/components/ui/sidebar';
 import { Button } from '@/components/ui/button';
 import { useAuth } from '@/context/AuthContext';
-import { LogOut, UserCircle, Settings, Moon, Sun, Bell, Package, Briefcase, CheckCircle2, Check, MessageSquare, History } from 'lucide-react';
+import { LogOut, UserCircle, Moon, Sun, Bell, Package, Briefcase, CheckCircle2, Check, MessageSquare, History } from 'lucide-react'; // Removed Settings icon
 import { useRouter } from 'next/navigation';
 import {
   DropdownMenu,
@@ -37,7 +37,10 @@ export function AppHeader() {
   const [isLoadingNotifications, setIsLoadingNotifications] = useState(false);
 
   const fetchNotifications = useCallback(async () => {
-    if (!currentUser || !supabase) return;
+    if (!currentUser || !supabase) {
+      console.log("AppHeader: Fetch notifications skipped - no current user or supabase client.");
+      return;
+    }
     setIsLoadingNotifications(true);
     try {
       const { data, error, count } = await supabase
@@ -45,17 +48,18 @@ export function AppHeader() {
         .select('*', { count: 'exact' })
         .eq('user_id', currentUser.id)
         .order('created_at', { ascending: false })
-        .limit(10); // Fetch latest 10
+        .limit(10); 
 
       if (error) throw error;
-
+      
+      console.log("AppHeader: Fetched notifications:", data);
       setNotifications(data || []);
-      // Calculate unread count from fetched notifications
       const currentUnread = (data || []).filter(n => !n.is_read).length;
       setUnreadCount(currentUnread);
+      console.log("AppHeader: Unread count set to:", currentUnread);
 
     } catch (err: any) {
-      console.error('Error fetching notifications:', err);
+      console.error('AppHeader: Error fetching notifications. Code:', err.code, 'Message:', err.message, 'Details:', err.details, 'Hint:', err.hint, 'Full Error:', err);
       toast({ title: 'Error', description: 'Could not fetch notifications.', variant: 'destructive' });
     } finally {
       setIsLoadingNotifications(false);
@@ -68,27 +72,34 @@ export function AppHeader() {
     }
   }, [currentUser, fetchNotifications]);
 
-  // Supabase Realtime for new notifications (optional, can be added later)
-  // useEffect(() => {
-  //   if (!currentUser || !supabase) return;
-  //   const channel = supabase
-  //     .channel(`notifications:${currentUser.id}`)
-  //     .on(
-  //       'postgres_changes',
-  //       { event: 'INSERT', schema: 'public', table: 'notifications', filter: `user_id=eq.${currentUser.id}` },
-  //       (payload) => {
-  //         console.log('New notification received via realtime:', payload.new);
-  //         // Add to start of notifications list & update unread count
-  //         setNotifications(prev => [payload.new as NotificationItem, ...prev].slice(0,10));
-  //         setUnreadCount(prev => prev + 1);
-  //         toast({title: "New Notification", description: (payload.new as NotificationItem).message});
-  //       }
-  //     )
-  //     .subscribe();
-  //   return () => {
-  //     supabase.removeChannel(channel);
-  //   };
-  // }, [currentUser, toast]);
+  useEffect(() => {
+    if (!currentUser || !supabase) return;
+    const channel = supabase
+      .channel(`notifications:${currentUser.id}`)
+      .on(
+        'postgres_changes',
+        { event: 'INSERT', schema: 'public', table: 'notifications', filter: `user_id=eq.${currentUser.id}` },
+        (payload) => {
+          console.log('AppHeader: New notification received via realtime:', payload.new);
+          // Add to start of notifications list & update unread count
+          setNotifications(prev => [payload.new as NotificationItem, ...prev.slice(0,9)]); // Keep list to 10
+          setUnreadCount(prev => prev + 1);
+          toast({title: "New Notification", description: (payload.new as NotificationItem).message});
+        }
+      )
+      .subscribe((status, err) => {
+        if (status === 'SUBSCRIBED') {
+          console.log('AppHeader: Subscribed to notifications channel for user:', currentUser.id);
+        }
+        if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
+          console.error('AppHeader: Error subscribing to notifications channel. Status:', status, 'Error:', err);
+        }
+      });
+    return () => {
+      console.log('AppHeader: Unsubscribing from notifications channel for user:', currentUser.id);
+      supabase.removeChannel(channel);
+    };
+  }, [currentUser, toast]);
 
 
   useEffect(() => {
@@ -117,7 +128,7 @@ export function AppHeader() {
 
   const handleNotificationClick = async (notification: NotificationItem) => {
     if (!supabase) return;
-    // Mark as read in DB
+    
     if (!notification.is_read) {
       const { error } = await supabase
         .from('notifications')
@@ -125,15 +136,14 @@ export function AppHeader() {
         .eq('id', notification.id);
 
       if (error) {
-        console.error('Error marking notification as read:', error);
+        console.error('AppHeader: Error marking notification as read. Code:', error.code, 'Message:', error.message, 'Details:', error.details, 'Hint:', error.hint, 'Full Error:', error);
         toast({ title: 'Error', description: 'Could not mark notification as read.', variant: 'destructive' });
       } else {
-        // Update local state
         setNotifications(prev => prev.map(n => n.id === notification.id ? { ...n, is_read: true } : n));
         setUnreadCount(prev => Math.max(0, prev - 1));
       }
     }
-    // Navigate if link exists
+    
     if (notification.link) {
       router.push(notification.link);
     }
@@ -151,7 +161,7 @@ export function AppHeader() {
       .eq('user_id', currentUser.id);
 
     if (error) {
-      console.error('Error marking all notifications as read:', error);
+      console.error('AppHeader: Error marking all notifications as read. Code:', error.code, 'Message:', error.message, 'Details:', error.details, 'Hint:', error.hint, 'Full Error:', error);
       toast({ title: 'Error', description: 'Could not mark all notifications as read.', variant: 'destructive' });
     } else {
       setNotifications(prev => prev.map(n => ({ ...n, is_read: true })));
@@ -169,7 +179,8 @@ export function AppHeader() {
       case 'new_comment': return <MessageSquare className="h-4 w-4 text-blue-500" />;
       case 'task_assigned': return <UserCircle className="h-4 w-4 text-green-500" />;
       case 'task_approved': return <CheckCircle2 className="h-4 w-4 text-purple-500" />;
-      case 'new_log': return <History className="h-4 w-4 text-orange-500" />;
+      case 'task_completed_for_approval': return <CheckCircle2 className="h-4 w-4 text-orange-500" />;
+      case 'new_log': return <History className="h-4 w-4 text-indigo-500" />;
       default: return <Package className="h-4 w-4 text-gray-500" />;
     }
   };
@@ -188,7 +199,7 @@ export function AppHeader() {
         </Button>
 
         {currentUser && (
-          <DropdownMenu onOpenChange={(open) => { if(open) fetchNotifications(); /* Refresh on open */ }}>
+          <DropdownMenu onOpenChange={(open) => { if(open) fetchNotifications(); }}>
             <DropdownMenuTrigger asChild>
               <Button variant="ghost" size="icon" className="relative" aria-label="Notifications">
                 <Bell className="h-5 w-5" />
@@ -206,14 +217,14 @@ export function AppHeader() {
               <DropdownMenuLabel className="flex justify-between items-center">
                 <span>Notifications</span>
                  {notifications.filter(n => !n.is_read).length > 0 && (
-                    <Button variant="link" size="sm" className="p-0 h-auto text-xs" onClick={handleMarkAllAsRead}>
+                    <Button variant="link" size="sm" className="p-0 h-auto text-xs" onClick={handleMarkAllAsRead} disabled={isLoadingNotifications}>
                         <Check className="mr-1 h-3 w-3"/> Mark all as read
                     </Button>
                  )}
               </DropdownMenuLabel>
               <DropdownMenuSeparator />
               {isLoadingNotifications ? (
-                 <DropdownMenuItem disabled className="text-center text-muted-foreground py-4">Loading notifications...</DropdownMenuItem>
+                 <DropdownMenuItem disabled className="flex justify-center text-muted-foreground py-4">Loading...</DropdownMenuItem>
               ) : notifications.length === 0 ? (
                 <DropdownMenuItem disabled className="text-center text-muted-foreground py-4">No new notifications</DropdownMenuItem>
               ) : (
@@ -222,7 +233,7 @@ export function AppHeader() {
                     <DropdownMenuItem
                       key={notification.id}
                       onClick={() => handleNotificationClick(notification)}
-                      className={`cursor-pointer ${!notification.is_read ? 'font-semibold bg-accent/50 hover:bg-accent/70' : 'hover:bg-accent/30'}`}
+                      className={`cursor-pointer ${!notification.is_read ? 'font-semibold bg-accent/20 hover:bg-accent/40' : 'hover:bg-accent/10'}`}
                     >
                       <div className="flex items-start gap-2 py-1 w-full">
                         <div className="mt-1">{getNotificationIcon(notification.type)}</div>
@@ -243,7 +254,7 @@ export function AppHeader() {
                 </DropdownMenuGroup>
               )}
                <DropdownMenuSeparator />
-                <DropdownMenuItem disabled className="justify-center text-sm text-muted-foreground">
+                <DropdownMenuItem disabled className="justify-center text-sm text-muted-foreground cursor-default">
                   {/* Link to a full notifications page could go here if implemented */}
                   {/* View all notifications */}
                 </DropdownMenuItem>
@@ -275,10 +286,7 @@ export function AppHeader() {
                 <UserCircle className="mr-2 h-4 w-4" />
                 <span>Profile</span>
               </DropdownMenuItem>
-              <DropdownMenuItem onClick={() => router.push('/settings')}>
-                <Settings className="mr-2 h-4 w-4" />
-                <span>Settings</span>
-              </DropdownMenuItem>
+              {/* Settings link removed from here */}
               <DropdownMenuSeparator />
               <DropdownMenuItem onClick={handleLogout}>
                 <LogOut className="mr-2 h-4 w-4" />
