@@ -16,7 +16,8 @@ export interface Task {
   id: string; // uuid
   title: string;
   description?: string | null;
-  assignee_id?: string | null; // Single User ID (from profiles table)
+  assignee_ids?: string[] | null; // Array of User IDs for multiple assignees
+  assigneeName?: string | null; // Placeholder if needed, typically fetch names based on IDs
   dueDate?: string | null; // ISO date string
   priority?: TaskPriority | null;
   project_id?: string | null; // uuid, foreign key to projects table
