@@ -5,7 +5,7 @@ import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { useAuth } from '@/context/AuthContext';
 import { Sidebar, SidebarMenu, SidebarMenuItem, SidebarMenuButton, SidebarHeader, SidebarFooter, SidebarContent, SidebarSeparator } from '@/components/ui/sidebar';
-import { LayoutDashboard, ListChecks, Users, BrainCircuit, LogOut, FolderKanban, CheckCircle2, UserPlus } from 'lucide-react'; // Removed Settings icon if not used elsewhere
+import { LayoutDashboard, ListChecks, Users, LogOut, FolderKanban, CheckCircle2, UserPlus } from 'lucide-react';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import type { NavItem } from '@/types';
 import { cn } from '@/lib/utils';
@@ -15,10 +15,9 @@ const navItems: NavItem[] = [
   { href: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
   { href: '/tasks', label: 'Tasks', icon: ListChecks },
   { href: '/admin/projects', label: 'Projects', icon: FolderKanban, adminOnly: true },
-  { href: '/admin/users', label: 'User Management', icon: Users, adminOnly: true },
-  { href: '/admin/users/create', label: 'Create New User', icon: UserPlus, adminOnly: true },
+  { href: '/admin/users', label: 'User Management', icon: Users, adminOnly: true, activePathPrefix: '/admin/users' },
   { href: '/admin/approvals', label: 'Task Approvals', icon: CheckCircle2, adminOnly: true },
-  { href: '/ai-assigner', label: 'AI Assigner', icon: BrainCircuit, adminOnly: true },
+  // { href: '/ai-assigner', label: 'AI Assigner', icon: BrainCircuit, adminOnly: true }, // Removed AI Assigner
 ];
 
 
@@ -36,14 +35,23 @@ export function AppSidebar() {
     return items
       .filter(item => isAdmin || !item.adminOnly) 
       .map((item) => {
+        // Check if the item itself is active
         let isItemActive = pathname === item.href;
+        
+        // If it's a group and has an activePathPrefix, check if current path starts with it
         if (item.activePathPrefix && pathname.startsWith(item.activePathPrefix)) {
           isItemActive = true;
         }
-        // Specific exact matches for dashboard and tasks list
-        if (item.href === '/dashboard' && pathname !== '/dashboard') isItemActive = false;
-        if (item.href === '/tasks' && pathname !== '/tasks' && !pathname.startsWith('/tasks/')) isItemActive = false;
-        if (item.href === '/tasks' && (pathname === '/tasks' || pathname.startsWith('/tasks/'))) isItemActive = true;
+        
+        // Specific handling for /tasks to include /tasks/[id] and /tasks/edit/[id]
+        if (item.href === '/tasks' && (pathname === '/tasks' || pathname.startsWith('/tasks/'))) {
+          isItemActive = true;
+        }
+         // Specific handling for /admin/users to include /admin/users/create
+        if (item.href === '/admin/users' && (pathname === '/admin/users' || pathname.startsWith('/admin/users/'))) {
+            isItemActive = true;
+        }
+
 
         return (
           <SidebarMenuItem key={item.href + item.label}>
