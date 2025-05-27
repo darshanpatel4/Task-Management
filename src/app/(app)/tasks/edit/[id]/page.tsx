@@ -19,7 +19,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Calendar } from '@/components/ui/calendar';
-import { CalendarIcon, Loader2, AlertTriangle, Users, Save } from 'lucide-react';
+import { CalendarIcon, Loader2, AlertTriangle, Users, Save, ChevronDown } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { format, parseISO } from 'date-fns';
 import { useAuth } from '@/context/AuthContext';
@@ -29,6 +29,16 @@ import { useToast } from '@/hooks/use-toast';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { supabase } from '@/lib/supabaseClient';
 import { useEffect, useState, useCallback } from 'react';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuCheckboxItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
+import { ScrollArea } from '@/components/ui/scroll-area';
+
 
 const taskPriorities: TaskPriority[] = ['Low', 'Medium', 'High'];
 const editableTaskStatuses: TaskStatus[] = ['Pending', 'In Progress', 'Completed', 'Approved'];
@@ -36,7 +46,7 @@ const editableTaskStatuses: TaskStatus[] = ['Pending', 'In Progress', 'Completed
 const editTaskFormSchema = z.object({
   title: z.string().min(3, { message: 'Title must be at least 3 characters.' }),
   description: z.string().min(10, { message: 'Description must be at least 10 characters.' }),
-  assignee_id: z.string().nullable().optional(),
+  assignee_ids: z.array(z.string()).optional().default([]), // Changed from assignee_id
   dueDate: z.date({ required_error: 'Due date is required.' }),
   priority: z.enum(taskPriorities),
   project_id: z.string({ required_error: 'Project is required.' }),
@@ -53,7 +63,7 @@ export default function EditTaskPage() {
   const taskId = params.id as string;
 
   const [task, setTask] = useState<Task | null>(null);
-  const [originalAssigneeId, setOriginalAssigneeId] = useState<string | null | undefined>(undefined);
+  const [originalAssigneeIds, setOriginalAssigneeIds] = useState<string[]>([]); // Changed
   const [allUsers, setAllUsers] = useState<Pick<User, 'id' | 'name'>[]>([]);
   const [projects, setProjects] = useState<Pick<Project, 'id' | 'name'>[]>([]);
   const [isLoadingData, setIsLoadingData] = useState(true);
@@ -65,7 +75,7 @@ export default function EditTaskPage() {
     defaultValues: {
       title: '',
       description: '',
-      assignee_id: null,
+      assignee_ids: [], // Changed
       priority: 'Medium',
       status: 'Pending',
       project_id: '',
@@ -102,7 +112,7 @@ export default function EditTaskPage() {
       
       const fetchedTask = taskResponse.data as Task | null;
       setTask(fetchedTask);
-      setOriginalAssigneeId(fetchedTask?.assignee_id); 
+      setOriginalAssigneeIds(fetchedTask?.assignee_ids || []); 
       setAllUsers(usersResponse.data?.map(u => ({ id: u.id, name: u.full_name || 'Unnamed User' })) || []);
       setProjects(projectsResponse.data || []);
 
@@ -110,7 +120,7 @@ export default function EditTaskPage() {
         form.reset({
           title: fetchedTask.title || '',
           description: fetchedTask.description || '',
-          assignee_id: fetchedTask.assignee_id || null,
+          assignee_ids: fetchedTask.assignee_ids || [], // Changed
           dueDate: fetchedTask.dueDate ? parseISO(fetchedTask.dueDate) : new Date(),
           priority: fetchedTask.priority || 'Medium',
           project_id: fetchedTask.project_id || '',
@@ -130,6 +140,17 @@ export default function EditTaskPage() {
   useEffect(() => {
     fetchTaskAndRelatedData();
   }, [fetchTaskAndRelatedData]);
+
+  const getAssigneeButtonLabel = (selectedIds: string[] | undefined) => {
+    if (!selectedIds || selectedIds.length === 0) {
+      return "Select assignees";
+    }
+    if (selectedIds.length === 1) {
+      const user = allUsers.find(u => u.id === selectedIds[0]);
+      return user ? user.name : "1 user selected";
+    }
+    return `${selectedIds.length} users selected`;
+  };
 
 
   if (!isAdmin && !isLoadingData && error?.includes("Access Denied")) {
@@ -194,7 +215,7 @@ export default function EditTaskPage() {
       const taskToUpdate = {
         title: values.title,
         description: values.description,
-        assignee_id: values.assignee_id || null,
+        assignee_ids: values.assignee_ids && values.assignee_ids.length > 0 ? values.assignee_ids : null, // Changed
         due_date: values.dueDate.toISOString(),
         priority: values.priority,
         project_id: values.project_id,
@@ -209,14 +230,30 @@ export default function EditTaskPage() {
       if (updateError) throw updateError;
 
       let toastDescription = `Task "${values.title}" has been successfully updated.`;
-      if (values.assignee_id && values.assignee_id !== originalAssigneeId) {
-        const assignee = allUsers.find(u => u.id === values.assignee_id);
-        const assigneeName = assignee ? assignee.name : 'the new assignee';
-        console.log(`SIMULATING EMAIL: Task "${values.title}" re-assigned to ${assigneeName} (ID: ${values.assignee_id}). Link: /tasks/${task.id}`);
-        toastDescription += ` ${assigneeName} would be notified about the assignment.`;
-      } else if (!values.assignee_id && originalAssigneeId) {
-         console.log(`SIMULATING EMAIL: Task "${values.title}" unassigned. Previous assignee (ID: ${originalAssigneeId}) might be notified.`);
-         toastDescription += ` Task is now unassigned.`;
+      
+      const newAssigneeIds = values.assignee_ids || [];
+      const currentOriginalAssigneeIds = originalAssigneeIds || [];
+
+      // Find newly assigned users
+      const newlyAssigned = newAssigneeIds.filter(id => !currentOriginalAssigneeIds.includes(id));
+      // Find unassigned users
+      const unassigned = currentOriginalAssigneeIds.filter(id => !newAssigneeIds.includes(id));
+
+      if (newlyAssigned.length > 0) {
+        const assignedNames = newlyAssigned.map(id => allUsers.find(u => u.id === id)?.name || 'Unknown User').join(', ');
+        toastDescription += ` Assigned to ${assignedNames}. They would be notified.`;
+        newlyAssigned.forEach(assigneeId => {
+            const assignee = allUsers.find(u => u.id === assigneeId);
+            console.log(`SIMULATING EMAIL: Task "${values.title}" assigned to ${assignee ? assignee.name : assigneeId}. Link: /tasks/${task.id}`);
+        });
+      }
+      if (unassigned.length > 0) {
+         const unassignedNames = unassigned.map(id => allUsers.find(u => u.id === id)?.name || 'Unknown User').join(', ');
+         console.log(`SIMULATING NOTIFICATION: Task "${values.title}" unassigned from ${unassignedNames}.`);
+         // Potentially add to toastDescription if needed
+      }
+      if (newlyAssigned.length === 0 && unassigned.length === 0 && newAssigneeIds.length === 0 && currentOriginalAssigneeIds.length > 0) {
+        toastDescription += ` Task is now unassigned.`;
       }
 
 
@@ -283,33 +320,44 @@ export default function EditTaskPage() {
               />
               <FormField
                 control={form.control}
-                name="assignee_id" 
+                name="assignee_ids"
                 render={({ field }) => (
                   <FormItem>
                     <FormLabel className="flex items-center">
                       <Users className="mr-2 h-4 w-4 text-muted-foreground" />
-                      Assignee
+                      Assignees
                     </FormLabel>
-                    <Select 
-                      onValueChange={(value) => field.onChange(value === '_UNASSIGNED_' ? null : value)} 
-                      value={field.value || '_UNASSIGNED_'}
-                      disabled={allUsers.length === 0}
-                    >
-                      <FormControl>
-                        <SelectTrigger>
-                          <SelectValue placeholder="Select an assignee" />
-                        </SelectTrigger>
-                      </FormControl>
-                      <SelectContent>
-                        <SelectItem value="_UNASSIGNED_">Unassigned</SelectItem>
-                        {allUsers.map((user) => (
-                          <SelectItem key={user.id} value={user.id}>
-                            {user.name}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                    <FormDescription>Select a user to assign to this task.</FormDescription>
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <Button variant="outline" className="w-full justify-between">
+                          {getAssigneeButtonLabel(field.value)}
+                          <ChevronDown className="ml-2 h-4 w-4" />
+                        </Button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent className="w-[--radix-dropdown-menu-trigger-width]">
+                        <DropdownMenuLabel>Select Assignees</DropdownMenuLabel>
+                        <DropdownMenuSeparator />
+                        <ScrollArea className="h-48">
+                          {allUsers.length > 0 ? allUsers.map((user) => (
+                            <DropdownMenuCheckboxItem
+                              key={user.id}
+                              checked={(field.value || []).includes(user.id)}
+                              onCheckedChange={(checked) => {
+                                const currentAssigneeIds = field.value || [];
+                                const newAssigneeIds = checked
+                                  ? [...currentAssigneeIds, user.id]
+                                  : currentAssigneeIds.filter((id) => id !== user.id);
+                                field.onChange(newAssigneeIds);
+                              }}
+                              onSelect={(e) => e.preventDefault()} 
+                            >
+                              {user.name}
+                            </DropdownMenuCheckboxItem>
+                          )) : <DropdownMenuItem disabled>No users available</DropdownMenuItem>}
+                        </ScrollArea>
+                      </DropdownMenuContent>
+                    </DropdownMenu>
+                    <FormDescription>Select users to assign to this task.</FormDescription>
                     <FormMessage />
                   </FormItem>
                 )}
