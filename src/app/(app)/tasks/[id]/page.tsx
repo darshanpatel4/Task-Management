@@ -110,7 +110,6 @@ export default function TaskDetailPage() {
 
           if (profilesError) {
             console.warn(`Error fetching profiles for assignees ${fetchedTask.assignee_ids.join(', ')}:`, profilesError);
-            // Set a placeholder if profile fetching fails for some reason for all assignees
             setAssigneeDetails(fetchedTask.assignee_ids.map(id => ({ id, name: 'N/A (Profile Error)', avatar: undefined })));
           } else if (profilesData) {
             setAssigneeDetails(profilesData.map(p => ({ id: p.id, name: p.full_name || 'N/A', avatar: p.avatar_url || undefined })));
@@ -237,35 +236,35 @@ export default function TaskDetailPage() {
     // Client-side permission checks
     if (newStatus === 'Completed') {
       if (!isCurrentUserAnAssigneeForThisAction) {
-        toast({ title: "Permission Denied", description: "Only an assigned user can mark this task as 'Completed'.", variant: "destructive"});
         console.log(`TaskDetailPage: handleUpdateStatus - "Completed" permission denied. Reason: User is not an assignee. CurrentUser ID: ${currentUser?.id}, Task Assignee IDs: ${task.assignee_ids?.join(', ')}`);
+        toast({ title: "Permission Denied", description: "Only an assigned user can mark this task as 'Completed'.", variant: "destructive"});
         setIsUpdatingStatus(false);
         return;
       }
       if (!(task.status === 'In Progress' || task.status === 'Pending')) {
-        toast({ title: "Invalid Action", description: `Task cannot be marked 'Completed' from current status '${task.status}'. Must be 'In Progress' or 'Pending'.`, variant: "destructive"});
         console.log(`TaskDetailPage: handleUpdateStatus - "Completed" permission denied. Reason: Task status is '${task.status}', not 'In Progress' or 'Pending'.`);
+        toast({ title: "Invalid Action", description: `Task cannot be marked 'Completed' from current status '${task.status}'. Must be 'In Progress' or 'Pending'.`, variant: "destructive"});
         setIsUpdatingStatus(false);
         return;
       }
     } else if (newStatus === 'Approved') {
       if (!isAdmin || task.status !== 'Completed') {
-         toast({ title: "Invalid Action", description: "Only an admin can approve a 'Completed' task.", variant: "destructive"});
          console.log(`TaskDetailPage: handleUpdateStatus - "Approved" permission denied. Reason: Not admin or task not 'Completed'. IsAdmin: ${isAdmin}, Task Status: ${task.status}`);
+         toast({ title: "Invalid Action", description: "Only an admin can approve a 'Completed' task.", variant: "destructive"});
          setIsUpdatingStatus(false);
         return;
       }
     } else if (newStatus === 'In Progress' && task.status === 'Completed') { // Admin rejecting
         if (!isAdmin) {
-          toast({ title: "Invalid Action", description: "Only an admin can send a 'Completed' task back to 'In Progress'.", variant: "destructive"});
           console.log('TaskDetailPage: handleUpdateStatus - Admin reject permission denied. Reason: Not an admin.');
+          toast({ title: "Invalid Action", description: "Only an admin can send a 'Completed' task back to 'In Progress'.", variant: "destructive"});
           setIsUpdatingStatus(false);
           return;
         }
     } else if (newStatus === 'In Progress' && task.status === 'Pending') { // User starting a pending task
         if (!isCurrentUserAnAssigneeForThisAction && !isAdmin) { // Admin can also start any task
-            toast({ title: "Permission Denied", description: "You cannot change the task to 'In Progress'.", variant: "destructive"});
             console.log(`TaskDetailPage: handleUpdateStatus - "In Progress" from "Pending" permission denied. Reason: Not assignee or admin. IsAssignee: ${isCurrentUserAnAssigneeForThisAction}, IsAdmin: ${isAdmin}`);
+            toast({ title: "Permission Denied", description: "You cannot change the task to 'In Progress'.", variant: "destructive"});
             setIsUpdatingStatus(false);
             return;
         }
@@ -286,10 +285,40 @@ export default function TaskDetailPage() {
 
       setTask(prevTask => prevTask ? { ...prevTask, status: newStatus } : null);
       toast({ title: "Status Updated", description: `Task status changed to ${newStatus}.` });
-       if (isAdmin && (newStatus === 'Approved' || (newStatus === 'In Progress' && task.status === 'Completed'))) {
-         // router.push('/admin/approvals'); // Re-consider if this redirect is always desired. May remove for now.
-         console.log('TaskDetailPage: Admin action completed, approvals list might need refresh if navigated there.');
-       }
+
+      // Notify admins if a non-admin marks a task as 'Completed'
+      if (newStatus === 'Completed' && !isAdmin && currentUser) {
+        const { data: adminProfiles, error: adminFetchError } = await supabase
+          .from('profiles')
+          .select('id')
+          .eq('role', 'Admin');
+
+        if (adminFetchError) {
+          console.error('TaskDetailPage: Error fetching admin profiles for notification:', adminFetchError);
+        } else if (adminProfiles && adminProfiles.length > 0) {
+          const notificationsToInsert = adminProfiles.map(admin => ({
+            user_id: admin.id, // Admin is the recipient
+            message: `${currentUser.name} marked task "${task.title}" as completed. It's ready for approval.`,
+            link: `/admin/approvals`, // Or `/tasks/${task.id}`
+            type: 'task_completed_for_approval' as const,
+            task_id: task.id,
+            triggered_by_user_id: currentUser.id,
+          }));
+
+          if (notificationsToInsert.length > 0) {
+            const { error: notificationError } = await supabase
+              .from('notifications')
+              .insert(notificationsToInsert);
+            if (notificationError) {
+              console.error("TaskDetailPage: Error creating 'task_completed_for_approval' notifications. Code:", notificationError.code, "Message:", notificationError.message, "Details:", notificationError.details, "Hint:", notificationError.hint, "Full Error:", notificationError);
+              toast({ title: "Notification Error", description: "Task completed, but failed to notify admins.", variant: "default", duration: 7000 });
+            } else {
+              toast({ title: "Admins Notified", description: "Admins have been notified that the task is ready for approval.", variant: "default" });
+            }
+          }
+        }
+      }
+
     } catch (e: any) {
       const supabaseErrorCode = e?.code;
       const supabaseErrorMessage = e?.message;
@@ -308,8 +337,8 @@ export default function TaskDetailPage() {
     switch (status) {
       case 'Pending': return 'secondary';
       case 'In Progress': return 'default';
-      case 'Completed': return 'outline'; // Changed to 'outline' to visually differentiate from 'Approved'
-      case 'Approved': return 'default'; // Kept 'default' (often green-ish in themes)
+      case 'Completed': return 'outline'; 
+      case 'Approved': return 'default'; 
       default: return 'secondary';
     }
   };
@@ -360,9 +389,7 @@ export default function TaskDetailPage() {
   const canLogTime = isCurrentUserAnAssignee && (task.status === 'In Progress' || task.status === 'Pending');
   const canStartTask = (isCurrentUserAnAssignee || isAdmin) && task.status === 'Pending';
 
-
   console.log('TaskDetailPage Render:', { taskId: task?.id, currentUserRole: currentUser?.role, currentUserId: currentUser?.id, taskAssigneeIds: task?.assignee_ids, taskStatus: task?.status, isCurrentUserAnAssignee, canMarkCompleted, isAdmin, canAdminApprove, canAdminReject, canLogTime, canStartTask });
-
 
   return (
     <div className="max-w-4xl mx-auto space-y-6">

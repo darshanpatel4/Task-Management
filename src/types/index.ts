@@ -17,7 +17,6 @@ export interface Task {
   title: string;
   description?: string | null;
   assignee_ids?: string[] | null; // Array of User IDs for assignees
-  // assigneeName and assignee_id (singular) are removed as we now use assignee_ids
   dueDate?: string | null; // ISO date string
   priority?: TaskPriority | null;
   project_id?: string | null; // uuid, foreign key to projects table
@@ -67,7 +66,7 @@ export interface NavItem {
   activePathPrefix?: string;
 }
 
-export type NotificationType = 'new_comment' | 'new_log' | 'task_assigned' | 'task_approved' | 'generic';
+export type NotificationType = 'new_comment' | 'new_log' | 'task_assigned' | 'task_approved' | 'task_completed_for_approval' | 'generic';
 
 export interface NotificationItem {
   id: string;
