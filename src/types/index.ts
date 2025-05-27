@@ -15,15 +15,13 @@ export type TaskPriority = 'Low' | 'Medium' | 'High';
 export interface Task {
   id: string; // uuid
   title: string;
-  description: string;
+  description?: string | null;
   assignee_id?: string | null; // Single User ID (from profiles table)
-  assigneeName?: string | null; // Denormalized for easy display
-  assigneeAvatar?: string | null; // Denormalized
   dueDate?: string | null; // ISO date string
-  priority: TaskPriority;
-  project_id: string; // uuid, foreign key to projects table
+  priority?: TaskPriority | null;
+  project_id?: string | null; // uuid, foreign key to projects table
   projectName?: string | null; // Denormalized for easy display
-  status: TaskStatus;
+  status?: TaskStatus | null;
   created_at?: string | null; // ISO date string, set by DB
   user_id?: string | null; // uuid, creator (from auth.users)
   comments?: TaskComment[] | null;
@@ -68,11 +66,19 @@ export interface NavItem {
   activePathPrefix?: string;
 }
 
+export type NotificationType = 'new_comment' | 'new_log' | 'task_assigned' | 'task_approved' | 'generic';
+
 export interface NotificationItem {
   id: string;
+  user_id: string; // Recipient
   message: string;
-  link?: string; // Optional link to navigate to
-  createdAt: string; // ISO string
-  isRead: boolean;
-  type: 'new_comment' | 'new_log' | 'task_assigned' | 'task_approved' | 'generic';
+  link?: string | null;
+  created_at: string; // ISO string
+  is_read: boolean;
+  type: NotificationType;
+  triggered_by_user_id?: string | null; // Optional: Who triggered it
+  task_id?: string | null; // Optional: Related task
+  project_id?: string | null; // Optional: Related project
+  // Optional: for displaying triggerer's name if needed
+  triggered_by_profile?: { full_name?: string | null } | null;
 }
