@@ -38,7 +38,7 @@ export interface Project {
   description?: string | null;
   user_id?: string | null; // uuid, creator, can be null if user is deleted
   created_at?: string | null; // ISO date string
-  status?: ProjectStatus; // Added project status
+  status?: ProjectStatus;
 }
 
 export interface TaskLog {
@@ -66,4 +66,13 @@ export interface NavItem {
   adminOnly?: boolean;
   children?: NavItem[];
   activePathPrefix?: string;
+}
+
+export interface NotificationItem {
+  id: string;
+  message: string;
+  link?: string; // Optional link to navigate to
+  createdAt: string; // ISO string
+  isRead: boolean;
+  type: 'new_comment' | 'new_log' | 'task_assigned' | 'task_approved' | 'generic';
 }
