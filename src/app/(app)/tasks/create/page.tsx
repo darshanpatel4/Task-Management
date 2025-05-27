@@ -80,6 +80,7 @@ export default function CreateTaskPage() {
       status: 'Pending',
       assignee_ids: [],
       project_id: undefined,
+      dueDate: undefined,
     },
   });
 
@@ -122,14 +123,15 @@ export default function CreateTaskPage() {
   }, [isAdmin, toast]);
 
   const getAssigneeButtonLabel = (selectedIds: string[] | undefined) => {
-    if (!selectedIds || selectedIds.length === 0) {
+    const safeSelectedIds = selectedIds || [];
+    if (safeSelectedIds.length === 0) {
       return "Select assignees";
     }
-    if (selectedIds.length === 1) {
-      const user = allUsers.find(u => u.id === selectedIds[0]);
+    if (safeSelectedIds.length === 1) {
+      const user = allUsers.find(u => u.id === safeSelectedIds[0]);
       return user ? user.name : "1 user selected";
     }
-    return `${selectedIds.length} users selected`;
+    return `${safeSelectedIds.length} users selected`;
   };
 
   async function onSubmit(values: TaskFormValues) {
@@ -152,7 +154,7 @@ export default function CreateTaskPage() {
         priority: values.priority,
         project_id: values.project_id,
         status: values.status,
-        user_id: currentUser.id,
+        user_id: currentUser.id, // Creator of the task
       };
 
       const { data: createdTaskData, error: taskInsertError } = await supabase
@@ -166,11 +168,11 @@ export default function CreateTaskPage() {
       let toastDescription = `Task "${values.title}" has been successfully created.`;
       
       // Create notifications for assignees
-      if (createdTaskData && taskToInsert.assignee_ids && taskToInsert.assignee_ids.length > 0) {
+      if (createdTaskData && taskToInsert.assignee_ids && taskToInsert.assignee_ids.length > 0 && currentUser) {
         const notificationsToInsert = taskToInsert.assignee_ids.map(assigneeId => {
-          const assignee = allUsers.find(u => u.id === assigneeId);
+          // const assignee = allUsers.find(u => u.id === assigneeId); // For getting name for message, if needed.
           return {
-            user_id: assigneeId,
+            user_id: assigneeId, // The user who will receive the notification
             message: `You have been assigned a new task: "${values.title}" by ${currentUser.name}.`,
             link: `/tasks/${createdTaskData.id}`,
             type: 'task_assigned' as const,
@@ -185,8 +187,14 @@ export default function CreateTaskPage() {
             .insert(notificationsToInsert);
 
           if (notificationError) {
-            console.error("Error creating assignment notifications:", notificationError);
-            toastDescription += ` Assignees notified (with potential errors).`;
+            console.error(
+              "Error creating assignment notifications. Code:", notificationError.code, 
+              "Message:", notificationError.message, 
+              "Details:", notificationError.details,
+              "Hint:", notificationError.hint,
+              "Full Error:", notificationError
+            );
+            toastDescription += ` Assignees notified (with potential errors in notification creation).`;
           } else {
             toastDescription += ` Assignees have been notified.`;
           }
@@ -199,13 +207,29 @@ export default function CreateTaskPage() {
       });
       router.push('/tasks');
     } catch (error: any) {
-      console.error(`Error creating task. Code: ${error.code}, Message: ${error.message}, Details: ${error.details}, Hint: ${error.hint}. Full error object:`, error);
+      const supabaseErrorCode = error?.code;
+      const supabaseErrorMessage = error?.message;
+      const supabaseErrorDetails = error?.details;
+      const supabaseErrorHint = error?.hint;
+      
       let displayMessage = 'An unexpected error occurred. Please try again.';
-      if (error.message) {
-        displayMessage = error.message;
-      } else if (error.details) {
-        displayMessage = error.details;
+      if (supabaseErrorMessage) {
+        displayMessage = supabaseErrorMessage;
+      } else if (supabaseErrorDetails) {
+        displayMessage = supabaseErrorDetails;
+      } else {
+          try {
+            displayMessage = JSON.stringify(error);
+          } catch (stringifyError) {
+            displayMessage = String(error);
+          }
       }
+
+      console.error(
+        `Error creating task. Supabase Code: ${supabaseErrorCode}, Message: ${supabaseErrorMessage}, Details: ${supabaseErrorDetails}, Hint: ${supabaseErrorHint}. Processed display message: ${displayMessage}`, error
+      );
+      console.error('Full error object during task creation:', error); 
+
       toast({
         title: 'Error Creating Task',
         description: displayMessage,
@@ -266,6 +290,7 @@ export default function CreateTaskPage() {
             <AlertTriangle className="mr-2 h-8 w-8" />
             <p className="font-semibold">Error loading data</p>
             <p>{dataError}</p>
+             <Button onClick={() => { setIsLoadingData(true); useEffect(() => { async function fetchData() { if (!supabase || !isAdmin) { setIsLoadingData(false); if (!isAdmin) setDataError("Access Denied. You must be an admin to create tasks."); else setDataError("Supabase client not available."); return; } setIsLoadingData(true); setDataError(null); try { const [usersResponse, projectsResponse] = await Promise.all([ supabase.from('profiles').select('id, full_name').order('full_name', { ascending: true }), supabase.from('projects').select('id, name').order('name', { ascending: true }) ]); if (usersResponse.error) throw usersResponse.error; if (projectsResponse.error) throw projectsResponse.error; setAllUsers(usersResponse.data?.map(u => ({ id: u.id, name: u.full_name || 'Unnamed User' })) || []); setProjects(projectsResponse.data || []); } catch (error: any) { const displayMessage = error.message || error.details || 'Failed to load initial data for task creation.'; setDataError(displayMessage); toast({ title: 'Error Loading Data', description: displayMessage, variant: 'destructive', }); } finally { setIsLoadingData(false); } } fetchData(); }, [isAdmin, toast]); }} variant="outline" size="sm" className="mt-4">Try Again</Button>
           </div>
         )}
         {!isLoadingData && !dataError && (
@@ -324,11 +349,11 @@ export default function CreateTaskPage() {
                                   : currentAssigneeIds.filter((id) => id !== user.id);
                                 field.onChange(newAssigneeIds);
                               }}
-                              onSelect={(e) => e.preventDefault()}
+                              onSelect={(e) => e.preventDefault()} // Prevent dropdown from closing on select
                             >
                               {user.name}
                             </DropdownMenuCheckboxItem>
-                          )) : <DropdownMenuItem disabled>No users available</DropdownMenuItem>}
+                          )) : <DropdownMenuCheckboxItem disabled>No users available</DropdownMenuCheckboxItem>}
                         </ScrollArea>
                       </DropdownMenuContent>
                     </DropdownMenu>
