@@ -5,7 +5,7 @@ import Link from 'next/link';
 import { SidebarTrigger, useSidebar } from '@/components/ui/sidebar';
 import { Button } from '@/components/ui/button';
 import { useAuth } from '@/context/AuthContext';
-import { LogOut, UserCircle, Settings, Moon, Sun, Bell, Package, Briefcase } from 'lucide-react'; // Added Bell
+import { LogOut, UserCircle, Settings, Moon, Sun, Bell, Package, Briefcase, CheckCircle2 } from 'lucide-react'; // Added CheckCircle2
 import { useRouter } from 'next/navigation';
 import { 
   DropdownMenu, 
@@ -17,7 +17,7 @@ import {
   DropdownMenuGroup
 } from '@/components/ui/dropdown-menu';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
-import { Badge } from '@/components/ui/badge'; // Added Badge for notifications
+import { Badge } from '@/components/ui/badge';
 import { useState, useEffect } from 'react';
 import type { NotificationItem } from '@/types';
 import { formatDistanceToNow } from 'date-fns';
