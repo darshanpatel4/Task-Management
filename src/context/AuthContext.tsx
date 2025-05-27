@@ -9,7 +9,7 @@ import type { AuthChangeEvent, Session, User as SupabaseUser, PostgrestError } f
 
 interface AuthContextType {
   currentUser: User | null;
-  setCurrentUser: (user: User | null) => void; // Keep this for potential direct use if needed
+  setCurrentUser: (user: User | null) => void;
   logout: () => Promise<void>;
   isAdmin: boolean;
   loading: boolean;
@@ -18,8 +18,6 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
-const LOADING_TIMEOUT_DURATION = 15000; // 15 seconds
-
 const mapSupabaseUserToAppUser = (supabaseUser: SupabaseUser | null, profile: any | null): User | null => {
   if (!supabaseUser) return null;
 
@@ -27,9 +25,7 @@ const mapSupabaseUserToAppUser = (supabaseUser: SupabaseUser | null, profile: an
   if (profile && (profile.role === 'Admin' || profile.role === 'User')) {
     role = profile.role;
   } else if (profile && profile.role) {
-    console.warn(`AuthContext: mapSupabaseUserToAppUser - Unknown role "${profile.role}" for user ${supabaseUser.id}. Defaulting to 'User'.`);
-  } else {
-    // console.log(`AuthContext: mapSupabaseUserToAppUser - No profile role found for user ${supabaseUser.id}. Defaulting to 'User'. Profile was:`, profile);
+    console.warn(`AuthContext: mapSupabaseUserToAppUser - Unknown role "${profile.role}" for user ${supabaseUser.id}. Defaulting to 'User'. Profile was:`, profile);
   }
 
   return {
@@ -44,58 +40,31 @@ const mapSupabaseUserToAppUser = (supabaseUser: SupabaseUser | null, profile: an
 export const AuthProvider = ({ children }: { children: ReactNode }) => {
   const [currentUserState, setCurrentUserStateInternal] = useState<User | null>(null);
   const [sessionState, setSessionStateInternal] = useState<Session | null>(null);
-  const [loadingState, setLoadingStateInternal] = useState(true); // Initialize true for initial load
+  const [loadingState, setLoadingStateInternal] = useState(true);
   const router = useRouter();
   const pathname = usePathname();
-  const loadingTimeoutRef = useRef<NodeJS.Timeout | null>(null);
-
-  const clearLoadingTimeout = useCallback(() => {
-    if (loadingTimeoutRef.current) {
-      clearTimeout(loadingTimeoutRef.current);
-      loadingTimeoutRef.current = null;
-      // console.log("AuthContext: Cleared loading timeout.");
-    }
-  }, []);
-
-  const startLoadingWithTimeout = useCallback((operationTag: string) => {
-    console.log(`AuthContext: ${operationTag} - Setting loading to TRUE.`);
-    setLoadingStateInternal(true);
-    clearLoadingTimeout(); // Clear any existing timeout before starting a new one
-    loadingTimeoutRef.current = setTimeout(() => {
-      console.warn(`AuthContext: LOADING TIMEOUT for operation [${operationTag}]! Forcing loading to false.`);
-      setLoadingStateInternal(false);
-      loadingTimeoutRef.current = null; // Ensure ref is cleared
-    }, LOADING_TIMEOUT_DURATION);
-  }, [clearLoadingTimeout]);
-
-  const stopLoading = useCallback((operationTag: string) => {
-    console.log(`AuthContext: ${operationTag} - Setting loading to FALSE.`);
-    clearLoadingTimeout();
-    setLoadingStateInternal(false);
-  }, [clearLoadingTimeout]);
 
   const setCurrentUser = useCallback((user: User | null) => {
-    // console.log("AuthContext: setCurrentUser explicitly called with:", user ? `${user.email} (Role: ${user.role})` : 'null');
+    console.log("AuthContext: setCurrentUser PUBLIC explicit call with:", user ? `${user.email} (Role: ${user.role})` : 'null');
     setCurrentUserStateInternal(user);
   }, []);
 
   const setSession = useCallback((newSession: Session | null) => {
-    // console.log("AuthContext: setSession called with:", newSession ? `Session for ${newSession.user.id}` : 'null');
+    console.log("AuthContext: setSession PUBLIC explicit call with:", newSession ? `Session for ${newSession.user.id}` : 'null');
     setSessionStateInternal(newSession);
   }, []);
-
 
   const fetchProfileAndSetUser = useCallback(async (sbUser: SupabaseUser, operationTag: string) => {
     console.log(`AuthContext: ${operationTag} - fetchProfileAndSetUser called for user ID: ${sbUser.id}`);
     if (!supabase) {
       console.warn(`AuthContext: ${operationTag} - Supabase client not available in fetchProfileAndSetUser.`);
-      setCurrentUser(mapSupabaseUserToAppUser(sbUser, null));
+      setCurrentUserStateInternal(mapSupabaseUserToAppUser(sbUser, null));
       return;
     }
 
-    console.log(`AuthContext: ${operationTag} - fetchProfileAndSetUser - BEFORE Supabase call to fetch profile for user ID: ${sbUser.id}`);
     let profile = null;
     let profileError: PostgrestError | null = null;
+    console.log(`AuthContext: ${operationTag} - fetchProfileAndSetUser - BEFORE Supabase call to fetch profile for user ID: ${sbUser.id}`);
     try {
       const { data, error } = await supabase
         .from('profiles')
@@ -106,78 +75,77 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       profileError = error;
     } catch (e: any) {
       console.error(`AuthContext: ${operationTag} - fetchProfileAndSetUser - EXCEPTION during Supabase call:`, e);
-      profileError = e as PostgrestError; // Or create a custom error object
+      profileError = e as PostgrestError;
     }
     console.log(`AuthContext: ${operationTag} - fetchProfileAndSetUser - AFTER Supabase call. Error:`, profileError, "Profile Data:", profile);
 
     if (profileError) {
       console.error(`AuthContext: ${operationTag} - Error fetching profile for user ${sbUser.id}. Code: ${profileError.code}, Message: ${profileError.message}, Details: ${profileError.details}, Hint: ${profileError.hint}`);
-      if (profileError.code === 'PGRST116') {
+      if (profileError.code === 'PGRST116') { // "Not found"
         console.warn(`AuthContext: ${operationTag} - Profile not found for user ${sbUser.id}. User might exist in auth.users but not in profiles.`);
-        setCurrentUser(mapSupabaseUserToAppUser(sbUser, null)); // Use defaults if profile not found
+        setCurrentUserStateInternal(mapSupabaseUserToAppUser(sbUser, null));
       } else {
-        setCurrentUser(mapSupabaseUserToAppUser(sbUser, { full_name: 'Error Profile', role: 'User' as User['role'], email: sbUser.email || '' })); // Fallback on other errors
+        setCurrentUserStateInternal(mapSupabaseUserToAppUser(sbUser, { full_name: 'Error Profile', role: 'User' as UserRole, email: sbUser.email || '' }));
       }
     } else if (profile) {
-      // console.log(`AuthContext: ${operationTag} - Profile fetched successfully for user ${sbUser.id}:`, profile.email, profile.role);
-      setCurrentUser(mapSupabaseUserToAppUser(sbUser, profile));
+      setCurrentUserStateInternal(mapSupabaseUserToAppUser(sbUser, profile));
     } else {
       console.warn(`AuthContext: ${operationTag} - No profile data returned for user ${sbUser.id} (no error but no data). Using defaults.`);
-      setCurrentUser(mapSupabaseUserToAppUser(sbUser, null));
+      setCurrentUserStateInternal(mapSupabaseUserToAppUser(sbUser, null));
     }
-  }, [supabase, setCurrentUser]);
-
+  }, [supabase, setCurrentUserStateInternal]);
 
   useEffect(() => {
     const initialLoadTag = "initialLoad";
     if (!supabase) {
       console.warn("AuthContext: Supabase client not initialized during effect setup. Auth will be disabled.");
-      stopLoading(`${initialLoadTag}-noSupabaseClient`);
-      setCurrentUser(null);
-      setSession(null);
+      setLoadingStateInternal(false);
+      setCurrentUserStateInternal(null);
+      setSessionStateInternal(null);
       return;
     }
 
-    startLoadingWithTimeout(`${initialLoadTag}-getSessionStart`);
+    console.log(`AuthContext: ${initialLoadTag} - Setting loading to TRUE for initial session check.`);
+    setLoadingStateInternal(true);
     supabase.auth.getSession().then(async ({ data: { session: currentSession } }) => {
-      console.log(`AuthContext: ${initialLoadTag} - getSession() result. Session:`, !!currentSession, "User in session:", !!currentSession?.user);
-      setSession(currentSession);
+      console.log(`AuthContext: ${initialLoadTag} - getSession() result. Session:`, !!currentSession, "User in session:", !!currentSession?.user?.id);
+      setSessionStateInternal(currentSession);
       if (currentSession?.user) {
-        console.log(`AuthContext: ${initialLoadTag} - Initial session has user ID: ${currentSession.user.id}. Fetching profile.`);
         await fetchProfileAndSetUser(currentSession.user, `${initialLoadTag}-profileFetch`);
       } else {
-        console.log(`AuthContext: ${initialLoadTag} - No active Supabase session by getSession(). Setting current user to null.`);
-        setCurrentUser(null);
+        setCurrentUserStateInternal(null);
       }
     }).catch(error => {
       console.error(`AuthContext: ${initialLoadTag} - Error in getSession():`, error);
-      setCurrentUser(null);
+      setCurrentUserStateInternal(null);
     }).finally(() => {
-      console.log(`AuthContext: ${initialLoadTag} - Initial getSession() promise chain complete.`);
-      stopLoading(`${initialLoadTag}-getSessionFinally`);
+      console.log(`AuthContext: ${initialLoadTag} - Initial getSession() promise chain FINALLY. Setting loading to FALSE.`);
+      setLoadingStateInternal(false);
     });
 
     const { data: authListener } = supabase.auth.onAuthStateChange(
       async (event: AuthChangeEvent, newSession: Session | null) => {
         const authEventTag = `onAuthChange-${event}`;
-        console.log(`AuthContext: ${authEventTag} - Event: ${event}, newSession user ID: ${newSession?.user?.id || 'null'}`);
-        setSession(newSession);
+        console.log(`AuthContext: ${authEventTag} - Event received. New session user ID: ${newSession?.user?.id || 'null'}`);
+        setSessionStateInternal(newSession);
 
         if (newSession?.user) {
-          startLoadingWithTimeout(`${authEventTag}-profileFetchStart`);
+          console.log(`AuthContext: ${authEventTag} - User detected. Setting loading to TRUE before profile fetch.`);
+          setLoadingStateInternal(true);
           try {
             await fetchProfileAndSetUser(newSession.user, `${authEventTag}-profileFetch`);
           } catch (error) {
-            console.error(`AuthContext: ${authEventTag} - Error in onAuthStateChange block for user ${newSession.user.id}:`, error);
-            setCurrentUser(null);
+            console.error(`AuthContext: ${authEventTag} - Error in onAuthStateChange profile fetch block for user ${newSession.user.id}:`, error);
+            setCurrentUserStateInternal(null); // Clear user on error during profile fetch
           } finally {
-            console.log(`AuthContext: ${authEventTag} (user detected path) finally block.`);
-            stopLoading(`${authEventTag}-profileFetchFinally`);
+            console.log(`AuthContext: ${authEventTag} (user detected path) FINALLY block. Setting loading to FALSE.`);
+            setLoadingStateInternal(false);
           }
         } else {
           console.log(`AuthContext: ${authEventTag} - No user in new session. Clearing user state.`);
-          setCurrentUser(null);
-          stopLoading(`${authEventTag}-noUserSession`);
+          setCurrentUserStateInternal(null);
+          console.log(`AuthContext: ${authEventTag} - No user session. Setting loading to FALSE.`);
+          setLoadingStateInternal(false); // Ensure loading is false if session becomes null
         }
       }
     );
@@ -185,36 +153,40 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     return () => {
       console.log("AuthContext: Unsubscribing auth listener.");
       authListener?.subscription.unsubscribe();
-      clearLoadingTimeout(); // Clear timeout on cleanup
     };
-  }, [supabase, fetchProfileAndSetUser, setCurrentUser, setSession, startLoadingWithTimeout, stopLoading, clearLoadingTimeout]);
+  }, [supabase, fetchProfileAndSetUser, setCurrentUserStateInternal, setSessionStateInternal]); // Removed setLoadingStateInternal from deps
 
   useEffect(() => {
+    // This effect handles redirection based on auth state
+    // It runs AFTER the loading state has been potentially set by the above effect
+    console.log(`AuthContextGuard: Current state - loading: ${loadingState}, currentUser: ${!!currentUserState}, pathname: ${pathname}`);
     if (!loadingState && !currentUserState && !pathname.startsWith('/auth')) {
-      console.log("AuthContext Guard: Not loading, no user, not on auth page. Redirecting to /auth/login. Current path:", pathname);
+      console.log("AuthContextGuard: Redirecting to /auth/login. Conditions met.");
       router.push('/auth/login');
     }
   }, [currentUserState, loadingState, pathname, router]);
 
   const logout = async () => {
     const logoutTag = "logout";
-    startLoadingWithTimeout(`${logoutTag}-start`);
-    if (supabase) {
-      const { error } = await supabase.auth.signOut();
-      if (error) {
-        console.error(`AuthContext: ${logoutTag} - Error logging out with Supabase:`, error);
-        // onAuthStateChange should ideally handle setting loading to false
-        // but as a fallback if it doesn't fire due to signOut error:
-        stopLoading(`${logoutTag}-signOutError`);
-      } else {
-        console.log(`AuthContext: ${logoutTag} - Supabase signOut successful. onAuthStateChange will handle state.`);
-        // onAuthStateChange will call stopLoading
-      }
-    } else {
+    if (!supabase) {
       console.log(`AuthContext: ${logoutTag} - Supabase client not available. Mock logout.`);
-      setCurrentUser(null);
-      setSession(null);
-      stopLoading(`${logoutTag}-mockLogout`);
+      setCurrentUserStateInternal(null);
+      setSessionStateInternal(null);
+      setLoadingStateInternal(false); // Ensure loading is false
+      return;
+    }
+    
+    console.log(`AuthContext: ${logoutTag} - Setting loading to TRUE before signOut.`);
+    setLoadingStateInternal(true);
+    const { error } = await supabase.auth.signOut();
+    if (error) {
+      console.error(`AuthContext: ${logoutTag} - Error logging out with Supabase:`, error);
+      // onAuthStateChange should handle setting user to null and loading to false.
+      // As a fallback if onAuthStateChange doesn't fire quickly or correctly after a signOut error:
+      setLoadingStateInternal(false);
+    } else {
+      console.log(`AuthContext: ${logoutTag} - Supabase signOut successful. onAuthStateChange will handle state update.`);
+      // onAuthStateChange will eventually set currentUser to null and loading to false.
     }
   };
   
@@ -234,4 +206,3 @@ export const useAuth = () => {
   }
   return context;
 };
-
