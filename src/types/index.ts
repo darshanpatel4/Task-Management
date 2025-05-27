@@ -16,8 +16,8 @@ export interface Task {
   id: string; // uuid
   title: string;
   description?: string | null;
-  assignee_ids?: string[] | null; // Array of User IDs for multiple assignees
-  assigneeName?: string | null; // Placeholder if needed, typically fetch names based on IDs
+  assignee_id?: string | null; // Single User ID for assignee
+  assigneeName?: string | null; // Denormalized for display
   dueDate?: string | null; // ISO date string
   priority?: TaskPriority | null;
   project_id?: string | null; // uuid, foreign key to projects table
@@ -37,7 +37,7 @@ export interface Project {
   description?: string | null;
   user_id?: string | null; // uuid, creator, can be null if user is deleted
   created_at?: string | null; // ISO date string
-  status?: ProjectStatus;
+  status?: ProjectStatus | null;
 }
 
 export interface TaskLog {
