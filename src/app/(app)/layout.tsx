@@ -3,10 +3,10 @@
 
 import { AppHeader } from '@/components/layout/AppHeader';
 import { AppSidebar } from '@/components/layout/AppSidebar';
-import { SidebarProvider, SidebarInset, Sidebar, SidebarRail } from '@/components/ui/sidebar';
+import { SidebarProvider, SidebarInset } from '@/components/ui/sidebar'; // Removed Sidebar, SidebarRail as they are not used here
 import { useAuth } from '@/context/AuthContext';
 import { useRouter, usePathname } from 'next/navigation';
-import { useEffect, useRef } from 'react'; // Added useRef
+import { useEffect, useRef } from 'react';
 import { Loader2 } from 'lucide-react';
 
 export default function AppLayout({
@@ -17,24 +17,32 @@ export default function AppLayout({
   const { currentUser, loading: authLoading, isInitialized } = useAuth();
   const router = useRouter();
   const pathname = usePathname();
-  const wasHiddenRef = useRef(typeof document !== 'undefined' ? document.hidden : false);
+  const wasHiddenRef = useRef(false); // Initialize to false
 
   // Log the loading state received by AppLayout
   console.log(`AppLayout: Received states - isInitialized: ${isInitialized}, authLoading: ${authLoading}, currentUser: ${!!currentUser}`);
 
   useEffect(() => {
     const handleVisibilityChange = () => {
-      if (document.visibilityState === 'visible' && wasHiddenRef.current) {
-        console.warn('AppLayout: Tab refocused after being hidden. Reloading page as a workaround for potential stuck loading state.');
-        window.location.reload();
+      if (document.visibilityState === 'visible') {
+        // Only reload if the app was initialized AND it was previously hidden
+        if (isInitialized && wasHiddenRef.current) {
+          console.warn('AppLayout: Tab became visible after being hidden. App initialized. Reloading page.');
+          window.location.reload();
+        }
+        // Reset wasHiddenRef when tab becomes visible, regardless of reload
+        // to prevent reloads if it becomes hidden & visible again quickly without being stuck
+        wasHiddenRef.current = false;
+      } else if (document.visibilityState === 'hidden') {
+        if (isInitialized) { // Only mark as hidden if app was already initialized
+          wasHiddenRef.current = true;
+          console.log('AppLayout: Tab became hidden.');
+        }
       }
-      wasHiddenRef.current = document.hidden;
     };
 
     if (typeof document !== 'undefined') {
       document.addEventListener('visibilitychange', handleVisibilityChange);
-      // Set initial state of wasHiddenRef based on current visibility
-      wasHiddenRef.current = document.hidden;
     }
 
     return () => {
@@ -42,7 +50,7 @@ export default function AppLayout({
         document.removeEventListener('visibilitychange', handleVisibilityChange);
       }
     };
-  }, []); // Empty dependency array, so it runs once on mount and cleans up on unmount
+  }, [isInitialized]); // Add isInitialized as a dependency
 
   useEffect(() => {
     console.log(`AppLayout useEffect for redirect check: isInitialized: ${isInitialized}, authLoading: ${authLoading}, currentUser: ${!!currentUser}, pathname: ${pathname}`);
@@ -85,7 +93,7 @@ export default function AppLayout({
             {children}
           </main>
       </SidebarInset>
-      <SidebarRail />
+      {/* SidebarRail was removed from imports as it's not used here. If needed, re-import and use. */}
     </SidebarProvider>
   );
 }
