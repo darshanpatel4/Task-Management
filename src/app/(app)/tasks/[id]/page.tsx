@@ -18,7 +18,7 @@ import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import * as z from 'zod';
 import { format, parseISO } from 'date-fns';
-import { CalendarDays, Briefcase, MessageSquare, History, CheckCircle, AlertTriangle, Edit3, Clock, Loader2, XCircle, ThumbsUp, RotateCcw, User as UserIcon, Users } from 'lucide-react';
+import { CalendarDays, Briefcase, MessageSquare, History, CheckCircle, AlertTriangle, Edit3, Clock, Loader2, XCircle, ThumbsUp, RotateCcw, User as UserIconLucide, Users } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { supabase } from '@/lib/supabaseClient';
 
@@ -65,7 +65,7 @@ export default function TaskDetailPage() {
 
     setIsLoading(true);
     setError(null);
-    setAssigneeDetails([]); 
+    setAssigneeDetails([]);
 
     try {
       const { data, error: fetchError } = await supabase
@@ -78,11 +78,11 @@ export default function TaskDetailPage() {
         .single();
 
       if (fetchError) {
-        if (fetchError.code === 'PGRST116') { 
+        if (fetchError.code === 'PGRST116') {
           setTask(null);
           setError('Task not found.');
         } else {
-          throw fetchError;
+          throw fetchError; // Rethrow to be caught by the main catch block
         }
       } else if (data) {
         const fetchedTask: Task = {
@@ -91,7 +91,7 @@ export default function TaskDetailPage() {
           description: data.description,
           dueDate: data.due_date,
           createdAt: data.created_at,
-          assignee_ids: data.assignee_ids, 
+          assignee_ids: data.assignee_ids || [], // Ensure assignee_ids is an array
           projectId: data.project_id,
           projectName: data.project?.name || 'N/A',
           priority: data.priority as TaskPriority,
@@ -110,9 +110,10 @@ export default function TaskDetailPage() {
 
           if (profilesError) {
             console.warn(`Error fetching profiles for assignees ${fetchedTask.assignee_ids.join(', ')}:`, profilesError);
+            // Set a placeholder if profile fetching fails for some reason for all assignees
             setAssigneeDetails(fetchedTask.assignee_ids.map(id => ({ id, name: 'N/A (Profile Error)', avatar: undefined })));
           } else if (profilesData) {
-            setAssigneeDetails(profilesData.map(p => ({ id: p.id, name: p.full_name || 'N/A', avatar: p.avatar_url })));
+            setAssigneeDetails(profilesData.map(p => ({ id: p.id, name: p.full_name || 'N/A', avatar: p.avatar_url || undefined })));
           }
         }
       } else {
@@ -132,16 +133,16 @@ export default function TaskDetailPage() {
         displayMessage = supabaseErrorDetails;
       } else {
         try {
-          displayMessage = JSON.stringify(e); 
+          displayMessage = JSON.stringify(e);
         } catch (stringifyError) {
-          displayMessage = String(e); 
+          displayMessage = String(e);
         }
       }
       
       console.error(
         `Error fetching task details. Supabase Code: ${supabaseErrorCode}, Message: ${supabaseErrorMessage}, Details: ${supabaseErrorDetails}, Hint: ${supabaseErrorHint}. Processed display message: ${displayMessage}`, e
       );
-      console.error('Full error object fetching task details:', e); 
+      console.error('Full error object fetching task details:', e);
       setError(displayMessage);
       toast({ title: 'Error Fetching Task', description: displayMessage, variant: 'destructive' });
     } finally {
@@ -227,37 +228,48 @@ export default function TaskDetailPage() {
     if (!task || !supabase || !currentUser) {
       toast({ title: "Error", description: "Task or user data missing for status update.", variant: "destructive"});
       console.error('TaskDetailPage: handleUpdateStatus - Pre-condition failed (task, supabase, or currentUser missing).');
+      setIsUpdatingStatus(false);
       return;
     }
     
     const isCurrentUserAnAssigneeForThisAction = currentUser && task.assignee_ids && task.assignee_ids.includes(currentUser.id);
 
+    // Client-side permission checks
     if (newStatus === 'Completed') {
-      if (!isCurrentUserAnAssigneeForThisAction || !(task.status === 'In Progress' || task.status === 'Pending')) {
-        toast({ title: "Permission Denied", description: "Only an assignee can mark this task as 'Completed' when it's 'In Progress' or 'Pending'.", variant: "destructive"});
-        console.log('TaskDetailPage: handleUpdateStatus - "Completed" permission denied.');
+      if (!isCurrentUserAnAssigneeForThisAction) {
+        toast({ title: "Permission Denied", description: "Only an assigned user can mark this task as 'Completed'.", variant: "destructive"});
+        console.log(`TaskDetailPage: handleUpdateStatus - "Completed" permission denied. Reason: User is not an assignee. CurrentUser ID: ${currentUser?.id}, Task Assignee IDs: ${task.assignee_ids?.join(', ')}`);
+        setIsUpdatingStatus(false);
+        return;
+      }
+      if (!(task.status === 'In Progress' || task.status === 'Pending')) {
+        toast({ title: "Invalid Action", description: `Task cannot be marked 'Completed' from current status '${task.status}'. Must be 'In Progress' or 'Pending'.`, variant: "destructive"});
+        console.log(`TaskDetailPage: handleUpdateStatus - "Completed" permission denied. Reason: Task status is '${task.status}', not 'In Progress' or 'Pending'.`);
+        setIsUpdatingStatus(false);
         return;
       }
     } else if (newStatus === 'Approved') {
       if (!isAdmin || task.status !== 'Completed') {
          toast({ title: "Invalid Action", description: "Only an admin can approve a 'Completed' task.", variant: "destructive"});
-         console.log('TaskDetailPage: handleUpdateStatus - "Approved" permission denied.');
+         console.log(`TaskDetailPage: handleUpdateStatus - "Approved" permission denied. Reason: Not admin or task not 'Completed'. IsAdmin: ${isAdmin}, Task Status: ${task.status}`);
+         setIsUpdatingStatus(false);
         return;
       }
     } else if (newStatus === 'In Progress' && task.status === 'Completed') { // Admin rejecting
         if (!isAdmin) {
           toast({ title: "Invalid Action", description: "Only an admin can send a 'Completed' task back to 'In Progress'.", variant: "destructive"});
-          console.log('TaskDetailPage: handleUpdateStatus - Admin reject permission denied.');
+          console.log('TaskDetailPage: handleUpdateStatus - Admin reject permission denied. Reason: Not an admin.');
+          setIsUpdatingStatus(false);
           return;
         }
-    } else if (newStatus === 'In Progress' && task.status !== 'Completed' && task.status !== 'Pending') { // User starting a pending task
-        if (!isCurrentUserAnAssigneeForThisAction && !isAdmin) {
+    } else if (newStatus === 'In Progress' && task.status === 'Pending') { // User starting a pending task
+        if (!isCurrentUserAnAssigneeForThisAction && !isAdmin) { // Admin can also start any task
             toast({ title: "Permission Denied", description: "You cannot change the task to 'In Progress'.", variant: "destructive"});
-            console.log('TaskDetailPage: handleUpdateStatus - "In Progress" general permission denied.');
+            console.log(`TaskDetailPage: handleUpdateStatus - "In Progress" from "Pending" permission denied. Reason: Not assignee or admin. IsAssignee: ${isCurrentUserAnAssigneeForThisAction}, IsAdmin: ${isAdmin}`);
+            setIsUpdatingStatus(false);
             return;
         }
     }
-
 
     setIsUpdatingStatus(true);
     try {
@@ -275,11 +287,17 @@ export default function TaskDetailPage() {
       setTask(prevTask => prevTask ? { ...prevTask, status: newStatus } : null);
       toast({ title: "Status Updated", description: `Task status changed to ${newStatus}.` });
        if (isAdmin && (newStatus === 'Approved' || (newStatus === 'In Progress' && task.status === 'Completed'))) {
-         router.push('/admin/approvals'); 
+         // router.push('/admin/approvals'); // Re-consider if this redirect is always desired. May remove for now.
+         console.log('TaskDetailPage: Admin action completed, approvals list might need refresh if navigated there.');
        }
     } catch (e: any) {
-      console.error(`TaskDetailPage: Catch block for handleUpdateStatus to ${newStatus}. Code: ${e.code}, Message: ${e.message}, Details: ${e.details}, Hint: ${e.hint}`, e);
-      let displayMessage = e.message || e.details || `Could not update task status to ${newStatus}.`;
+      const supabaseErrorCode = e?.code;
+      const supabaseErrorMessage = e?.message;
+      const supabaseErrorDetails = e?.details;
+      const supabaseErrorHint = e?.hint;
+      console.error(`TaskDetailPage: Catch block for handleUpdateStatus to ${newStatus}. Supabase Code: ${supabaseErrorCode}, Message: ${supabaseErrorMessage}, Details: ${supabaseErrorDetails}, Hint: ${supabaseErrorHint}`, e);
+      let displayMessage = supabaseErrorMessage || (typeof e === 'string' ? e : `Could not update task status to ${newStatus}.`);
+      if (supabaseErrorDetails) displayMessage += ` Details: ${supabaseErrorDetails}`;
       toast({ title: 'Error Updating Status', description: displayMessage, variant: 'destructive' });
     } finally {
       setIsUpdatingStatus(false);
@@ -290,8 +308,8 @@ export default function TaskDetailPage() {
     switch (status) {
       case 'Pending': return 'secondary';
       case 'In Progress': return 'default';
-      case 'Completed': return 'outline';
-      case 'Approved': return 'default'; 
+      case 'Completed': return 'outline'; // Changed to 'outline' to visually differentiate from 'Approved'
+      case 'Approved': return 'default'; // Kept 'default' (often green-ish in themes)
       default: return 'secondary';
     }
   };
@@ -340,10 +358,10 @@ export default function TaskDetailPage() {
   const canAdminApprove = isAdmin && task.status === 'Completed';
   const canAdminReject = isAdmin && task.status === 'Completed';
   const canLogTime = isCurrentUserAnAssignee && (task.status === 'In Progress' || task.status === 'Pending');
-  const canStartTask = isCurrentUserAnAssignee && task.status === 'Pending';
+  const canStartTask = (isCurrentUserAnAssignee || isAdmin) && task.status === 'Pending';
 
 
-  console.log('TaskDetailPage Render:', { taskId: task?.id, currentUserRole: currentUser?.role, currentUserId: currentUser?.id, taskAssigneeIds: task?.assignee_ids, taskStatus: task?.status, isCurrentUserAnAssignee, canMarkCompleted, isAdmin, canAdminApprove, canAdminReject, canLogTime });
+  console.log('TaskDetailPage Render:', { taskId: task?.id, currentUserRole: currentUser?.role, currentUserId: currentUser?.id, taskAssigneeIds: task?.assignee_ids, taskStatus: task?.status, isCurrentUserAnAssignee, canMarkCompleted, isAdmin, canAdminApprove, canAdminReject, canLogTime, canStartTask });
 
 
   return (
@@ -390,7 +408,7 @@ export default function TaskDetailPage() {
         </CardContent>
         <CardFooter className="flex flex-col sm:flex-row justify-end items-center gap-2 pt-4 border-t">
           {isAdmin && (
-            <Button variant="outline" onClick={() => router.push(`/tasks/edit/${task.id}`)} disabled={isUpdatingStatus || !supabase}><Edit3 className="mr-2 h-4 w-4" /> Edit Task (Admin)</Button>
+            <Button variant="outline" onClick={() => router.push(`/tasks/edit/${task.id}`)} disabled={isUpdatingStatus || !supabase}><Edit3 className="mr-2 h-4 w-4" /> Edit Task</Button>
           )}
           {canStartTask && (
             <Button onClick={() => handleUpdateStatus('In Progress')} disabled={isUpdatingStatus || !supabase}>Start Task</Button>
@@ -516,5 +534,3 @@ export default function TaskDetailPage() {
     </div>
   );
 }
-
-    
