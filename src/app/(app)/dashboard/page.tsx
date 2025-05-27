@@ -3,7 +3,7 @@
 
 import { useEffect, useState, useCallback } from 'react';
 import { useAuth } from '@/context/AuthContext';
-import type { Task, Project, TaskPriority, TaskStatus } from '@/types';
+import type { Task, Project, TaskPriority, TaskStatus, User } from '@/types';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -115,7 +115,7 @@ export default function DashboardPage() {
           errorLog += `  JSON.stringify failed: ${stringifyError?.message || String(stringifyError)}\n`;
         }
         errorLog += `  Full Object (raw):`;
-        console.error(errorLog, tasksFetchError); // Log the constructed string AND the raw object
+        console.error(errorLog, tasksFetchError); 
 
         let detailedErrorMessage = `Tasks fetch failed.`;
         if (tasksFetchError.message) detailedErrorMessage += ` Message: ${tasksFetchError.message}`;
@@ -163,14 +163,15 @@ export default function DashboardPage() {
       }
 
     } catch (e: any) {
-      const supabaseErrorCode = e?.code; // This 'e' is the error re-thrown from the tasksFetchError block or other await calls
-      const supabaseErrorMessage = e?.message; // This will be the constructed message from the re-thrown error
-      const supabaseErrorDetails = e?.details; // Likely undefined for the re-thrown error
-      const supabaseErrorHint = e?.hint;     // Likely undefined for the re-thrown error
+      const supabaseErrorCode = e?.code; 
+      const supabaseErrorMessage = e?.message; 
+      const supabaseErrorDetails = e?.details; 
+      const supabaseErrorHint = e?.hint;     
       
       let displayMessage = supabaseErrorMessage || (typeof e === 'string' ? e : 'Could not load dashboard data.');
       
-      console.error(`Dashboard: Overall fetch error. Message: ${displayMessage}. Full error object:`, e);
+      console.error(`Dashboard: Overall fetch error. Supabase Code: ${supabaseErrorCode}, Message: ${supabaseErrorMessage}, Details: ${supabaseErrorDetails}, Hint: ${supabaseErrorHint}. Processed display message: ${displayMessage}`, e);
+      console.error('Dashboard: Full error object:', e);
       setError(displayMessage);
       toast({ title: 'Error Loading Dashboard', description: displayMessage, variant: 'destructive' });
     } finally {
@@ -196,7 +197,11 @@ export default function DashboardPage() {
     if (assigneeIds.length === 1) {
       return assigneeNames[assigneeIds[0]] || assigneeIds[0].substring(0, 8) + '...';
     }
-    return `${assigneeIds.length} Assignees`;
+    const names = assigneeIds.map(id => assigneeNames[id] || id.substring(0,8) + '...').join(', ');
+    if (names.length > 30) {
+      return `${assigneeIds.length} Assignees`;
+    }
+    return names;
   };
 
 
@@ -364,5 +369,3 @@ export default function DashboardPage() {
     </div>
   );
 }
-
-    

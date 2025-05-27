@@ -44,7 +44,7 @@ export default function TasksPage() {
 
     setIsLoading(true);
     setError(null);
-    setAssigneeDetailsMap({}); // Reset assignee details
+    setAssigneeDetailsMap({});
 
     try {
       if (isAdmin) {
@@ -58,11 +58,11 @@ export default function TasksPage() {
 
       let query = supabase
         .from('tasks')
-        .select('id, title, description, due_date, created_at, assignee_ids, project_id, priority, status, user_id, project:projects!inner(name)') // Use assignee_ids
+        .select('id, title, description, due_date, created_at, assignee_ids, project_id, priority, status, user_id, project:projects!inner(name)')
         .order('created_at', { ascending: false });
 
       if (!isAdmin && currentUser?.id) {
-        query = query.filter('assignee_ids', 'cs', `{${currentUser.id}}`); // Filter by array containment
+        query = query.filter('assignee_ids', 'cs', `{${currentUser.id}}`);
       }
       if (statusFilter !== 'all') {
         query = query.eq('status', statusFilter);
@@ -87,7 +87,7 @@ export default function TasksPage() {
         description: task.description,
         dueDate: task.due_date,
         createdAt: task.created_at,
-        assignee_ids: task.assignee_ids, // Use assignee_ids
+        assignee_ids: task.assignee_ids,
         projectId: task.project_id,
         projectName: task.project?.name || 'N/A',
         priority: task.priority as TaskPriority,
@@ -97,7 +97,6 @@ export default function TasksPage() {
       setTasks(mappedTasks);
 
       if (isAdmin && mappedTasks.length > 0) {
-        // Collect all unique assignee IDs from the fetched tasks
         const allAssigneeIdsFromTasks = mappedTasks.reduce((acc, task) => {
           if (task.assignee_ids) {
             task.assignee_ids.forEach(id => acc.add(id));
@@ -224,12 +223,18 @@ export default function TasksPage() {
     }
   };
 
-  const displayAssigneeNames = (assigneeIds?: string[] | null) => {
+  const displayAssigneeNames = (assigneeIds?: string[] | null): string => {
     if (!assigneeIds || assigneeIds.length === 0) return 'Unassigned';
     if (assigneeIds.length === 1) {
-      return assigneeDetailsMap[assigneeIds[0]]?.name || assigneeIds[0].substring(0,8) + '...';
+      const assignee = assigneeDetailsMap[assigneeIds[0]];
+      return assignee ? assignee.name : assigneeIds[0].substring(0,8) + '...';
     }
-    return `${assigneeIds.length} Assignees`; // Or a list of names if short
+    // For multiple assignees, list them or show count
+    const names = assigneeIds.map(id => assigneeDetailsMap[id]?.name || id.substring(0,8) + '...').join(', ');
+    if (names.length > 30) { // Arbitrary length to switch to count
+        return `${assigneeIds.length} Assignees`;
+    }
+    return names;
   };
 
 
@@ -244,6 +249,8 @@ export default function TasksPage() {
 
 
   if (!currentUser && !isLoading) { 
+      // This state should ideally be handled by the AppLayout redirecting to login.
+      // If it reaches here, it's a fallback.
       return <p>Redirecting to login...</p>;
   }
 
