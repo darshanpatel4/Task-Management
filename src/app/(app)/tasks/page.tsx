@@ -4,7 +4,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import Link from 'next/link';
 import { useAuth } from '@/context/AuthContext';
-import type { Task, TaskStatus, TaskPriority, Project } from '@/types';
+import type { Task, TaskStatus, TaskPriority, Project, User } from '@/types';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
@@ -31,7 +31,7 @@ export default function TasksPage() {
   const [projectsForFilter, setProjectsForFilter] = useState<Pick<Project, 'id' | 'name'>[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [assigneeDetailsMap, setAssigneeDetailsMap] = useState<Record<string, { name: string }>>({});
+  const [assigneeDetailsMap, setAssigneeDetailsMap] = useState<Record<string, Pick<User, 'id' | 'name'>>>({});
 
 
   const fetchTasksAndRelatedData = useCallback(async () => {
@@ -44,6 +44,7 @@ export default function TasksPage() {
 
     setIsLoading(true);
     setError(null);
+    setAssigneeDetailsMap({}); // Reset assignee details
 
     try {
       if (isAdmin) {
@@ -57,11 +58,11 @@ export default function TasksPage() {
 
       let query = supabase
         .from('tasks')
-        .select('id, title, description, due_date, created_at, assignee_id, project_id, priority, status, user_id, project:projects!inner(name)')
+        .select('id, title, description, due_date, created_at, assignee_ids, project_id, priority, status, user_id, project:projects!inner(name)') // Use assignee_ids
         .order('created_at', { ascending: false });
 
       if (!isAdmin && currentUser?.id) {
-        query = query.eq('assignee_id', currentUser.id);
+        query = query.filter('assignee_ids', 'cs', `{${currentUser.id}}`); // Filter by array containment
       }
       if (statusFilter !== 'all') {
         query = query.eq('status', statusFilter);
@@ -86,7 +87,7 @@ export default function TasksPage() {
         description: task.description,
         dueDate: task.due_date,
         createdAt: task.created_at,
-        assignee_id: task.assignee_id,
+        assignee_ids: task.assignee_ids, // Use assignee_ids
         projectId: task.project_id,
         projectName: task.project?.name || 'N/A',
         priority: task.priority as TaskPriority,
@@ -96,18 +97,27 @@ export default function TasksPage() {
       setTasks(mappedTasks);
 
       if (isAdmin && mappedTasks.length > 0) {
-        const allAssigneeIds = [...new Set(mappedTasks.map(t => t.assignee_id).filter(id => id))] as string[];
-        if (allAssigneeIds.length > 0) {
+        // Collect all unique assignee IDs from the fetched tasks
+        const allAssigneeIdsFromTasks = mappedTasks.reduce((acc, task) => {
+          if (task.assignee_ids) {
+            task.assignee_ids.forEach(id => acc.add(id));
+          }
+          return acc;
+        }, new Set<string>());
+
+        const uniqueAssigneeIds = Array.from(allAssigneeIdsFromTasks);
+
+        if (uniqueAssigneeIds.length > 0) {
           const { data: profilesData, error: profilesError } = await supabase
             .from('profiles')
             .select('id, full_name')
-            .in('id', allAssigneeIds);
+            .in('id', uniqueAssigneeIds);
           
           if (profilesError) {
             console.error('TasksPage: Error fetching assignee names:', profilesError);
           } else {
-            const namesMap: Record<string, { name: string }> = {};
-            profilesData?.forEach(p => { namesMap[p.id] = { name: p.full_name || 'N/A' }; });
+            const namesMap: Record<string, Pick<User, 'id' | 'name'>> = {};
+            profilesData?.forEach(p => { namesMap[p.id] = { id: p.id, name: p.full_name || 'N/A' }; });
             setAssigneeDetailsMap(namesMap);
           }
         }
@@ -175,14 +185,14 @@ export default function TasksPage() {
         return;
     }
     if (confirm(`Are you sure you want to delete task ${taskId}? This action cannot be undone.`)) {
-        setIsLoading(true); // Set loading true for the delete operation
+        setIsLoading(true); 
         try {
             const { error: deleteError } = await supabase.from('tasks').delete().match({ id: taskId });
             
             if (deleteError) throw deleteError;
 
             toast({ title: "Task Deleted", description: `Task ${taskId} has been deleted.` });
-            fetchTasksAndRelatedData(); // Refresh the list
+            fetchTasksAndRelatedData(); 
         } catch (e: any) {
             const supabaseErrorCode = e?.code;
             const supabaseErrorMessage = e?.message;
@@ -209,14 +219,17 @@ export default function TasksPage() {
             
             toast({ title: "Error Deleting Task", description: displayMessage, variant: "destructive" });
         } finally {
-            setIsLoading(false); // Set loading false after the operation
+            setIsLoading(false); 
         }
     }
   };
 
-  const displayAssignee = (assigneeId?: string | null) => {
-    if (!assigneeId) return 'Unassigned';
-    return assigneeDetailsMap[assigneeId]?.name || 'Loading...';
+  const displayAssigneeNames = (assigneeIds?: string[] | null) => {
+    if (!assigneeIds || assigneeIds.length === 0) return 'Unassigned';
+    if (assigneeIds.length === 1) {
+      return assigneeDetailsMap[assigneeIds[0]]?.name || assigneeIds[0].substring(0,8) + '...';
+    }
+    return `${assigneeIds.length} Assignees`; // Or a list of names if short
   };
 
 
@@ -231,8 +244,6 @@ export default function TasksPage() {
 
 
   if (!currentUser && !isLoading) { 
-      // This check might be redundant if layout already handles redirect, but good for direct page access attempts
-      // router.push('/auth/login'); // Consider if this is needed or if layout handles it
       return <p>Redirecting to login...</p>;
   }
 
@@ -319,7 +330,7 @@ export default function TasksPage() {
               <TableHeader>
                 <TableRow>
                   <TableHead>Title</TableHead>
-                  {isAdmin && <TableHead>Assignee</TableHead>}
+                  {isAdmin && <TableHead>Assignees</TableHead>}
                   <TableHead>Project</TableHead>
                   <TableHead>Due Date</TableHead>
                   <TableHead>Priority</TableHead>
@@ -333,7 +344,7 @@ export default function TasksPage() {
                     <TableCell className="font-medium max-w-xs truncate">
                       <Link href={`/tasks/${task.id}`} className="hover:underline text-primary">{task.title}</Link>
                     </TableCell>
-                    {isAdmin && <TableCell>{displayAssignee(task.assignee_id)}</TableCell>}
+                    {isAdmin && <TableCell>{displayAssigneeNames(task.assignee_ids)}</TableCell>}
                     <TableCell>{task.projectName || 'N/A'}</TableCell>
                     <TableCell>{task.dueDate ? format(parseISO(task.dueDate), 'MMM d, yyyy') : 'N/A'}</TableCell>
                     <TableCell><Badge variant={getPriorityVariant(task.priority)} className="capitalize">{task.priority}</Badge></TableCell>
