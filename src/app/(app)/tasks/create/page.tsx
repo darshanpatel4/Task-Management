@@ -16,7 +16,13 @@ import {
 } from '@/components/ui/form';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Calendar } from '@/components/ui/calendar';
 import { CalendarIcon, Loader2, AlertTriangle, Users, ChevronDown } from 'lucide-react';
@@ -29,7 +35,6 @@ import { useToast } from '@/hooks/use-toast';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { supabase } from '@/lib/supabaseClient';
 import { useEffect, useState } from 'react';
-import { Checkbox } from '@/components/ui/checkbox';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import {
   DropdownMenu,
@@ -46,7 +51,7 @@ const userSettableTaskStatuses: TaskStatus[] = ['Pending', 'In Progress'];
 const formSchema = z.object({
   title: z.string().min(3, { message: 'Title must be at least 3 characters.' }),
   description: z.string().min(10, { message: 'Description must be at least 10 characters.' }),
-  assignee_ids: z.array(z.string()).optional().default([]), // Array of assignee IDs
+  assignee_ids: z.array(z.string()).optional().default([]),
   dueDate: z.date({ required_error: 'Due date is required.' }),
   priority: z.enum(taskPriorities),
   project_id: z.string({ required_error: 'Project is required.' }),
@@ -59,7 +64,7 @@ export default function CreateTaskPage() {
   const { currentUser, isAdmin } = useAuth();
   const router = useRouter();
   const { toast } = useToast();
-  
+
   const [allUsers, setAllUsers] = useState<Pick<User, 'id' | 'name'>[]>([]);
   const [projects, setProjects] = useState<Pick<Project, 'id' | 'name'>[]>([]);
   const [isLoadingData, setIsLoadingData] = useState(true);
@@ -73,8 +78,8 @@ export default function CreateTaskPage() {
       description: '',
       priority: 'Medium',
       status: 'Pending',
-      assignee_ids: [], 
-      project_id: undefined, 
+      assignee_ids: [],
+      project_id: undefined,
     },
   });
 
@@ -97,13 +102,11 @@ export default function CreateTaskPage() {
 
         if (usersResponse.error) throw usersResponse.error;
         if (projectsResponse.error) throw projectsResponse.error;
-        
-        console.log("CreateTaskPage: Fetched users (for assignee dropdown) from Supabase:", usersResponse.data);
+
         setAllUsers(usersResponse.data?.map(u => ({ id: u.id, name: u.full_name || 'Unnamed User' })) || []);
         setProjects(projectsResponse.data || []);
 
       } catch (error: any) {
-        console.error(`CreateTaskPage: Error fetching users or projects. Code: ${error.code}, Message: ${error.message}, Details: ${error.details}, Hint: ${error.hint}. Full error:`, error);
         const displayMessage = error.message || error.details || 'Failed to load initial data for task creation.';
         setDataError(displayMessage);
         toast({
@@ -138,7 +141,7 @@ export default function CreateTaskPage() {
       });
       return;
     }
-    
+
     setIsSubmitting(true);
     try {
       const taskToInsert = {
@@ -149,29 +152,44 @@ export default function CreateTaskPage() {
         priority: values.priority,
         project_id: values.project_id,
         status: values.status,
-        user_id: currentUser.id, 
+        user_id: currentUser.id,
       };
 
-      const { data, error } = await supabase
+      const { data: createdTaskData, error: taskInsertError } = await supabase
         .from('tasks')
         .insert([taskToInsert])
         .select()
-        .single(); 
+        .single();
 
-      if (error) throw error;
+      if (taskInsertError) throw taskInsertError;
 
       let toastDescription = `Task "${values.title}" has been successfully created.`;
       
-      if (taskToInsert.assignee_ids && taskToInsert.assignee_ids.length > 0) {
-        const selectedAssignees = allUsers.filter(u => taskToInsert.assignee_ids!.includes(u.id));
-        if (selectedAssignees.length > 0) {
-          const assigneeNames = selectedAssignees.map(a => a.name).join(', ');
-          toastDescription += ` Assigned to ${assigneeNames}. They would be notified.`;
-          selectedAssignees.forEach(assignee => {
-            console.log(`SIMULATING EMAIL: Task "${values.title}" assigned to ${assignee.name} (ID: ${assignee.id}). Link: /tasks/${data.id}`);
-            // TODO: Future - Insert into notifications table
-            // await supabase.from('notifications').insert({ user_id: assignee.id, message: `You've been assigned task: ${values.title}`, link: `/tasks/${data.id}`, type: 'task_assigned' });
-          });
+      // Create notifications for assignees
+      if (createdTaskData && taskToInsert.assignee_ids && taskToInsert.assignee_ids.length > 0) {
+        const notificationsToInsert = taskToInsert.assignee_ids.map(assigneeId => {
+          const assignee = allUsers.find(u => u.id === assigneeId);
+          return {
+            user_id: assigneeId,
+            message: `You have been assigned a new task: "${values.title}" by ${currentUser.name}.`,
+            link: `/tasks/${createdTaskData.id}`,
+            type: 'task_assigned' as const,
+            task_id: createdTaskData.id,
+            triggered_by_user_id: currentUser.id,
+          };
+        });
+
+        if (notificationsToInsert.length > 0) {
+          const { error: notificationError } = await supabase
+            .from('notifications')
+            .insert(notificationsToInsert);
+
+          if (notificationError) {
+            console.error("Error creating assignment notifications:", notificationError);
+            toastDescription += ` Assignees notified (with potential errors).`;
+          } else {
+            toastDescription += ` Assignees have been notified.`;
+          }
         }
       }
 
@@ -179,7 +197,7 @@ export default function CreateTaskPage() {
         title: 'Task Created',
         description: toastDescription,
       });
-      router.push('/tasks'); 
+      router.push('/tasks');
     } catch (error: any) {
       console.error(`Error creating task. Code: ${error.code}, Message: ${error.message}, Details: ${error.details}, Hint: ${error.hint}. Full error object:`, error);
       let displayMessage = 'An unexpected error occurred. Please try again.';
@@ -187,12 +205,6 @@ export default function CreateTaskPage() {
         displayMessage = error.message;
       } else if (error.details) {
         displayMessage = error.details;
-      } else {
-        try {
-          displayMessage = JSON.stringify(error);
-        } catch (e) {
-          displayMessage = String(error);
-        }
       }
       toast({
         title: 'Error Creating Task',
@@ -219,7 +231,7 @@ export default function CreateTaskPage() {
         </div>
     );
   }
-  
+
   if (!supabase && !isLoadingData) {
      return (
         <div className="flex items-center justify-center h-full">
@@ -312,7 +324,7 @@ export default function CreateTaskPage() {
                                   : currentAssigneeIds.filter((id) => id !== user.id);
                                 field.onChange(newAssigneeIds);
                               }}
-                              onSelect={(e) => e.preventDefault()} // Prevent closing dropdown on item click
+                              onSelect={(e) => e.preventDefault()}
                             >
                               {user.name}
                             </DropdownMenuCheckboxItem>
@@ -399,7 +411,7 @@ export default function CreateTaskPage() {
                       <Select onValueChange={field.onChange} defaultValue={field.value}>
                         <FormControl><SelectTrigger><SelectValue placeholder="Select status" /></SelectTrigger></FormControl>
                         <SelectContent>
-                          {userSettableTaskStatuses.map(status => ( 
+                          {userSettableTaskStatuses.map(status => (
                             <SelectItem key={status} value={status}>{status}</SelectItem>
                           ))}
                         </SelectContent>

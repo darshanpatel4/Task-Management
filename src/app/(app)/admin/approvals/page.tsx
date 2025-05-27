@@ -20,7 +20,7 @@ interface AssigneeDisplayInfo {
 }
 
 export default function ApprovalsPage() {
-  const { isAdmin } = useAuth();
+  const { currentUser, isAdmin } = useAuth(); // Get currentUser for triggered_by_user_id
   const router = useRouter();
   const { toast } = useToast();
 
@@ -38,7 +38,7 @@ export default function ApprovalsPage() {
 
     setIsLoading(true);
     setError(null);
-    setAssigneeDetailsMap({}); 
+    setAssigneeDetailsMap({});
 
     try {
       const { data: tasksData, error: supabaseError } = await supabase
@@ -156,8 +156,8 @@ export default function ApprovalsPage() {
  }
 
  const handleApprove = async (taskId: string, taskAssigneeIds?: string[] | null) => {
-    if (!supabase) {
-      toast({ title: "Error", description: "Supabase client not available.", variant: "destructive" });
+    if (!supabase || !currentUser) { // Ensure currentUser is available for triggered_by_user_id
+      toast({ title: "Error", description: "Supabase client or user session not available.", variant: "destructive" });
       return;
     }
     try {
@@ -168,17 +168,19 @@ export default function ApprovalsPage() {
 
       if (updateError) throw updateError;
 
+      let toastDescription = `Task ID ${taskId} has been approved.`;
+
+      // Create notifications for assignees
       if (taskAssigneeIds && taskAssigneeIds.length > 0) {
-        const notificationsToInsert = taskAssigneeIds.map(assigneeId => {
-            const taskTitle = tasks.find(t => t.id === taskId)?.title || 'your task';
-            return {
-                user_id: assigneeId,
-                message: `Your task "${taskTitle}" has been approved!`,
-                type: 'task_approved' as const, // Explicitly type
-                task_id: taskId,
-                link: `/tasks/${taskId}`
-            };
-        });
+        const taskTitle = tasks.find(t => t.id === taskId)?.title || 'your task';
+        const notificationsToInsert = taskAssigneeIds.map(assigneeId => ({
+            user_id: assigneeId,
+            message: `Your task "${taskTitle}" has been approved by ${currentUser.name}!`,
+            type: 'task_approved' as const,
+            link: `/tasks/${taskId}`,
+            task_id: taskId,
+            triggered_by_user_id: currentUser.id, 
+        }));
         
         if (notificationsToInsert.length > 0) {
             const { error: notificationError } = await supabase
@@ -186,16 +188,13 @@ export default function ApprovalsPage() {
                 .insert(notificationsToInsert);
             if (notificationError) {
                 console.error("Error creating approval notifications:", notificationError);
-                toast({title: "Notification Error", description: "Task approved, but failed to send notifications.", variant: "default"});
+                toastDescription += " Assignees notified (with potential errors).";
             } else {
-                 toast({ title: "Task Approved", description: `Task ID ${taskId} has been approved and assignees notified.`});
+                 toastDescription += " Assignees have been notified.";
             }
         }
-      } else {
-         toast({ title: "Task Approved", description: `Task ID ${taskId} has been approved.`});
       }
-
-
+      toast({ title: "Task Approved", description: toastDescription});
       fetchPendingApprovalTasks(); 
     } catch (e: any) {
       const displayMessage = e.message || e.details || 'Could not approve task.';
@@ -218,6 +217,7 @@ export default function ApprovalsPage() {
       if (updateError) throw updateError;
 
       toast({ title: "Task Rejected", description: `Task ID ${taskId} has been sent back to 'In Progress'.`, variant: "default"});
+      // Optionally, send a notification to assignees that the task was rejected.
       fetchPendingApprovalTasks(); 
     } catch (e: any) {
       const displayMessage = e.message || e.details || 'Could not reject task.';
@@ -306,5 +306,3 @@ export default function ApprovalsPage() {
     </div>
   );
 }
-
-    

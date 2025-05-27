@@ -39,14 +39,13 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { ScrollArea } from '@/components/ui/scroll-area';
 
-
 const taskPriorities: TaskPriority[] = ['Low', 'Medium', 'High'];
 const editableTaskStatuses: TaskStatus[] = ['Pending', 'In Progress', 'Completed', 'Approved'];
 
 const editTaskFormSchema = z.object({
   title: z.string().min(3, { message: 'Title must be at least 3 characters.' }),
   description: z.string().min(10, { message: 'Description must be at least 10 characters.' }),
-  assignee_ids: z.array(z.string()).optional().default([]), // Changed from assignee_id
+  assignee_ids: z.array(z.string()).optional().default([]),
   dueDate: z.date({ required_error: 'Due date is required.' }),
   priority: z.enum(taskPriorities),
   project_id: z.string({ required_error: 'Project is required.' }),
@@ -63,7 +62,7 @@ export default function EditTaskPage() {
   const taskId = params.id as string;
 
   const [task, setTask] = useState<Task | null>(null);
-  const [originalAssigneeIds, setOriginalAssigneeIds] = useState<string[]>([]); // Changed
+  const [originalAssigneeIds, setOriginalAssigneeIds] = useState<string[]>([]);
   const [allUsers, setAllUsers] = useState<Pick<User, 'id' | 'name'>[]>([]);
   const [projects, setProjects] = useState<Pick<Project, 'id' | 'name'>[]>([]);
   const [isLoadingData, setIsLoadingData] = useState(true);
@@ -75,7 +74,7 @@ export default function EditTaskPage() {
     defaultValues: {
       title: '',
       description: '',
-      assignee_ids: [], // Changed
+      assignee_ids: [],
       priority: 'Medium',
       status: 'Pending',
       project_id: '',
@@ -109,10 +108,10 @@ export default function EditTaskPage() {
       }
       if (usersResponse.error) throw usersResponse.error;
       if (projectsResponse.error) throw projectsResponse.error;
-      
+
       const fetchedTask = taskResponse.data as Task | null;
       setTask(fetchedTask);
-      setOriginalAssigneeIds(fetchedTask?.assignee_ids || []); 
+      setOriginalAssigneeIds(fetchedTask?.assignee_ids || []);
       setAllUsers(usersResponse.data?.map(u => ({ id: u.id, name: u.full_name || 'Unnamed User' })) || []);
       setProjects(projectsResponse.data || []);
 
@@ -120,7 +119,7 @@ export default function EditTaskPage() {
         form.reset({
           title: fetchedTask.title || '',
           description: fetchedTask.description || '',
-          assignee_ids: fetchedTask.assignee_ids || [], // Changed
+          assignee_ids: fetchedTask.assignee_ids || [],
           dueDate: fetchedTask.dueDate ? parseISO(fetchedTask.dueDate) : new Date(),
           priority: fetchedTask.priority || 'Medium',
           project_id: fetchedTask.project_id || '',
@@ -128,7 +127,6 @@ export default function EditTaskPage() {
         });
       }
     } catch (e: any) {
-      console.error(`EditTaskPage: Error fetching task or related data. Code: ${e.code}, Message: ${e.message}, Details: ${e.details}, Hint: ${e.hint}`, e);
       const displayMessage = e.message || e.details || 'Failed to load initial data for editing.';
       setError(displayMessage);
       toast({ title: 'Error Loading Data', description: displayMessage, variant: 'destructive' });
@@ -151,6 +149,86 @@ export default function EditTaskPage() {
     }
     return `${selectedIds.length} users selected`;
   };
+
+  async function onSubmit(values: EditTaskFormValues) {
+    if (!currentUser || !supabase || !task) {
+      toast({ title: 'Error', description: 'User, Supabase, or task data unavailable.', variant: 'destructive' });
+      return;
+    }
+
+    setIsSubmitting(true);
+    try {
+      const taskToUpdate = {
+        title: values.title,
+        description: values.description,
+        assignee_ids: values.assignee_ids && values.assignee_ids.length > 0 ? values.assignee_ids : null,
+        due_date: values.dueDate.toISOString(),
+        priority: values.priority,
+        project_id: values.project_id,
+        status: values.status,
+      };
+
+      const { error: updateError } = await supabase
+        .from('tasks')
+        .update(taskToUpdate)
+        .eq('id', task.id);
+
+      if (updateError) throw updateError;
+
+      let toastDescription = `Task "${values.title}" has been successfully updated.`;
+
+      const newAssigneeIds = values.assignee_ids || [];
+      const currentOriginalAssigneeIds = originalAssigneeIds || [];
+      const newlyAssigned = newAssigneeIds.filter(id => !currentOriginalAssigneeIds.includes(id));
+      
+      if (newlyAssigned.length > 0 && currentUser) {
+        const notificationsToInsert = newlyAssigned.map(assigneeId => {
+          const assignee = allUsers.find(u => u.id === assigneeId);
+          return {
+            user_id: assigneeId,
+            message: `${currentUser.name} assigned you a task: "${values.title}".`,
+            link: `/tasks/${task.id}`,
+            type: 'task_assigned' as const,
+            task_id: task.id,
+            triggered_by_user_id: currentUser.id,
+          };
+        });
+
+        const { error: notificationError } = await supabase
+          .from('notifications')
+          .insert(notificationsToInsert);
+        
+        if (notificationError) {
+          console.error("Error creating assignment notifications on edit:", notificationError);
+          toastDescription += ` New assignees notified (with potential errors).`;
+        } else {
+          toastDescription += ` New assignees have been notified.`;
+        }
+      }
+
+      toast({
+        title: 'Task Updated',
+        description: toastDescription,
+      });
+      router.push(`/tasks/${task.id}`);
+    } catch (error: any)
+     {
+      console.error(`Error updating task. Code: ${error.code}, Message: ${error.message}, Details: ${error.details}, Hint: ${error.hint}. Full error object:`, error);
+      let displayMessage = 'An unexpected error occurred. Please try again.';
+      if (error.message) {
+        displayMessage = error.message;
+      } else if (error.details) {
+        displayMessage = error.details;
+      }
+      toast({
+        title: 'Error Updating Task',
+        description: displayMessage,
+        variant: 'destructive',
+      });
+    } finally {
+      setIsSubmitting(false);
+    }
+  }
 
 
   if (!isAdmin && !isLoadingData && error?.includes("Access Denied")) {
@@ -177,8 +255,8 @@ export default function EditTaskPage() {
       </div>
     );
   }
-  
-  if (error && !task) { 
+
+  if (error && !task) {
      return (
       <div className="flex flex-col items-center justify-center h-full text-destructive">
         <AlertTriangle className="h-12 w-12 mb-4" />
@@ -190,7 +268,7 @@ export default function EditTaskPage() {
       </div>
     );
   }
-  
+
   if (!supabase) {
     return (
       <div className="flex flex-col items-center justify-center h-full text-destructive">
@@ -201,89 +279,6 @@ export default function EditTaskPage() {
         </Button>
       </div>
     );
-  }
-
-
-  async function onSubmit(values: EditTaskFormValues) {
-    if (!currentUser || !supabase || !task) {
-      toast({ title: 'Error', description: 'User, Supabase, or task data unavailable.', variant: 'destructive' });
-      return;
-    }
-    
-    setIsSubmitting(true);
-    try {
-      const taskToUpdate = {
-        title: values.title,
-        description: values.description,
-        assignee_ids: values.assignee_ids && values.assignee_ids.length > 0 ? values.assignee_ids : null, // Changed
-        due_date: values.dueDate.toISOString(),
-        priority: values.priority,
-        project_id: values.project_id,
-        status: values.status,
-      };
-
-      const { error: updateError } = await supabase
-        .from('tasks')
-        .update(taskToUpdate)
-        .eq('id', task.id);
-
-      if (updateError) throw updateError;
-
-      let toastDescription = `Task "${values.title}" has been successfully updated.`;
-      
-      const newAssigneeIds = values.assignee_ids || [];
-      const currentOriginalAssigneeIds = originalAssigneeIds || [];
-
-      // Find newly assigned users
-      const newlyAssigned = newAssigneeIds.filter(id => !currentOriginalAssigneeIds.includes(id));
-      // Find unassigned users
-      const unassigned = currentOriginalAssigneeIds.filter(id => !newAssigneeIds.includes(id));
-
-      if (newlyAssigned.length > 0) {
-        const assignedNames = newlyAssigned.map(id => allUsers.find(u => u.id === id)?.name || 'Unknown User').join(', ');
-        toastDescription += ` Assigned to ${assignedNames}. They would be notified.`;
-        newlyAssigned.forEach(assigneeId => {
-            const assignee = allUsers.find(u => u.id === assigneeId);
-            console.log(`SIMULATING EMAIL: Task "${values.title}" assigned to ${assignee ? assignee.name : assigneeId}. Link: /tasks/${task.id}`);
-        });
-      }
-      if (unassigned.length > 0) {
-         const unassignedNames = unassigned.map(id => allUsers.find(u => u.id === id)?.name || 'Unknown User').join(', ');
-         console.log(`SIMULATING NOTIFICATION: Task "${values.title}" unassigned from ${unassignedNames}.`);
-         // Potentially add to toastDescription if needed
-      }
-      if (newlyAssigned.length === 0 && unassigned.length === 0 && newAssigneeIds.length === 0 && currentOriginalAssigneeIds.length > 0) {
-        toastDescription += ` Task is now unassigned.`;
-      }
-
-
-      toast({
-        title: 'Task Updated',
-        description: toastDescription,
-      });
-      router.push(`/tasks/${task.id}`); 
-    } catch (error: any) {
-      console.error(`Error updating task. Code: ${error.code}, Message: ${error.message}, Details: ${error.details}, Hint: ${error.hint}. Full error object:`, error);
-      let displayMessage = 'An unexpected error occurred. Please try again.';
-      if (error.message) {
-        displayMessage = error.message;
-      } else if (error.details) {
-        displayMessage = error.details;
-      } else {
-        try {
-          displayMessage = JSON.stringify(error);
-        } catch (e) {
-          displayMessage = String(error);
-        }
-      }
-      toast({
-        title: 'Error Updating Task',
-        description: displayMessage,
-        variant: 'destructive',
-      });
-    } finally {
-      setIsSubmitting(false);
-    }
   }
 
   return (
@@ -349,7 +344,7 @@ export default function EditTaskPage() {
                                   : currentAssigneeIds.filter((id) => id !== user.id);
                                 field.onChange(newAssigneeIds);
                               }}
-                              onSelect={(e) => e.preventDefault()} 
+                              onSelect={(e) => e.preventDefault()}
                             >
                               {user.name}
                             </DropdownMenuCheckboxItem>
@@ -436,7 +431,7 @@ export default function EditTaskPage() {
                       <Select onValueChange={field.onChange} value={field.value}>
                         <FormControl><SelectTrigger><SelectValue placeholder="Select status" /></SelectTrigger></FormControl>
                         <SelectContent>
-                          {editableTaskStatuses.map(status => ( 
+                          {editableTaskStatuses.map(status => (
                             <SelectItem key={status} value={status}>{status}</SelectItem>
                           ))}
                         </SelectContent>
