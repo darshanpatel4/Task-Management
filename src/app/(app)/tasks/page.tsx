@@ -134,11 +134,11 @@ export default function TasksPage() {
       } else if (supabaseErrorDetails) {
         displayMessage = supabaseErrorDetails;
       } else {
-        try {
-          displayMessage = JSON.stringify(e); 
-        } catch (stringifyError) {
-          displayMessage = String(e); 
-        }
+          try {
+            displayMessage = JSON.stringify(e); 
+          } catch (stringifyError) {
+            displayMessage = String(e); 
+          }
       }
       
       console.error(
@@ -178,19 +178,19 @@ export default function TasksPage() {
     }
   };
 
-  const handleDeleteTask = async (taskId: string) => {
+  const handleDeleteTask = async (taskId: string, taskTitle: string) => {
     if (!supabase) {
-        toast({ title: "Supabase Not Configured", description: `Cannot delete task ${taskId}.`, variant: "destructive" });
+        toast({ title: "Supabase Not Configured", description: `Cannot delete task "${taskTitle}".`, variant: "destructive" });
         return;
     }
-    if (confirm(`Are you sure you want to delete task ${taskId}? This action cannot be undone.`)) {
+    if (confirm(`Are you sure you want to delete task "${taskTitle}"? This action cannot be undone.`)) {
         setIsLoading(true); 
         try {
             const { error: deleteError } = await supabase.from('tasks').delete().match({ id: taskId });
             
             if (deleteError) throw deleteError;
 
-            toast({ title: "Task Deleted", description: `Task ${taskId} has been deleted.` });
+            toast({ title: "Task Deleted", description: `Task "${taskTitle}" has been deleted.` });
             fetchTasksAndRelatedData(); 
         } catch (e: any) {
             const supabaseErrorCode = e?.code;
@@ -198,7 +198,7 @@ export default function TasksPage() {
             const supabaseErrorDetails = e?.details;
             const supabaseErrorHint = e?.hint;
 
-            let displayMessage = 'Could not delete task.';
+            let displayMessage = `Could not delete task "${taskTitle}".`;
             if (supabaseErrorMessage) {
               displayMessage = supabaseErrorMessage;
             } else if (supabaseErrorDetails) {
@@ -212,9 +212,9 @@ export default function TasksPage() {
             }
             
             console.error(
-              `TasksPage: Error deleting task ${taskId}. Supabase Code: ${supabaseErrorCode}, Message: ${supabaseErrorMessage}, Details: ${supabaseErrorDetails}, Hint: ${supabaseErrorHint}. Processed display message: ${displayMessage}`, e
+              `TasksPage: Error deleting task "${taskTitle}" (ID: ${taskId}). Supabase Code: ${supabaseErrorCode}, Message: ${supabaseErrorMessage}, Details: ${supabaseErrorDetails}, Hint: ${supabaseErrorHint}. Processed display message: ${displayMessage}`, e
             );
-            console.error(`TasksPage: Full error object for delete task ${taskId}:`, e);
+            console.error(`TasksPage: Full error object for delete task "${taskTitle}" (ID: ${taskId}):`, e);
             
             toast({ title: "Error Deleting Task", description: displayMessage, variant: "destructive" });
         } finally {
@@ -375,7 +375,7 @@ export default function TasksPage() {
                               size="icon" 
                               className="text-destructive hover:text-destructive" 
                               aria-label="Delete task" 
-                              onClick={() => handleDeleteTask(task.id)}
+                              onClick={() => handleDeleteTask(task.id, task.title)}
                               disabled={!supabase || isLoading}
                             >
                               <Trash2 className="h-4 w-4" />
