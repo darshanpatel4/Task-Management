@@ -154,7 +154,7 @@ export default function CreateTaskPage() {
         priority: values.priority,
         project_id: values.project_id,
         status: values.status,
-        user_id: currentUser.id, // Creator of the task
+        user_id: currentUser.id, 
       };
 
       const { data: createdTaskData, error: taskInsertError } = await supabase
@@ -167,37 +167,33 @@ export default function CreateTaskPage() {
 
       let toastDescription = `Task "${values.title}" has been successfully created.`;
       
-      // Create notifications for assignees
-      if (createdTaskData && taskToInsert.assignee_ids && taskToInsert.assignee_ids.length > 0 && currentUser) {
-        const notificationsToInsert = taskToInsert.assignee_ids.map(assigneeId => {
-          // const assignee = allUsers.find(u => u.id === assigneeId); // For getting name for message, if needed.
-          return {
-            user_id: assigneeId, // The user who will receive the notification
-            message: `You have been assigned a new task: "${values.title}" by ${currentUser.name}.`,
+      if (createdTaskData && values.assignee_ids && values.assignee_ids.length > 0 && currentUser) {
+        const notificationsToInsert = values.assignee_ids.map(assigneeId => ({
+            user_id: assigneeId,
+            message: `${currentUser.name} assigned you a new task: "${values.title}".`,
             link: `/tasks/${createdTaskData.id}`,
             type: 'task_assigned' as const,
             task_id: createdTaskData.id,
             triggered_by_user_id: currentUser.id,
-          };
-        });
-
+        }));
+        
         if (notificationsToInsert.length > 0) {
-          const { error: notificationError } = await supabase
-            .from('notifications')
-            .insert(notificationsToInsert);
+            const { error: notificationError } = await supabase
+                .from('notifications')
+                .insert(notificationsToInsert);
 
-          if (notificationError) {
-            console.error(
-              "Error creating assignment notifications. Code:", notificationError.code, 
-              "Message:", notificationError.message, 
-              "Details:", notificationError.details,
-              "Hint:", notificationError.hint,
-              "Full Error:", notificationError
-            );
-            toastDescription += ` Assignees notified (with potential errors in notification creation).`;
-          } else {
-            toastDescription += ` Assignees have been notified.`;
-          }
+            if (notificationError) {
+                 console.error(
+                    "Error creating assignment notifications. Code:", notificationError.code, 
+                    "Message:", notificationError.message, 
+                    "Details:", notificationError.details,
+                    "Hint:", notificationError.hint,
+                    "Full Error:", notificationError
+                );
+                toastDescription += ` Assignees notified (with potential errors in notification creation).`;
+            } else {
+                 toastDescription += ` Assignees have been notified.`;
+            }
         }
       }
 

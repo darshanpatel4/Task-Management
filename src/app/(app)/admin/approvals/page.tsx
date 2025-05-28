@@ -20,7 +20,7 @@ interface AssigneeDisplayInfo {
 }
 
 export default function ApprovalsPage() {
-  const { currentUser, isAdmin } = useAuth(); // Get currentUser for triggered_by_user_id
+  const { currentUser, isAdmin } = useAuth(); 
   const router = useRouter();
   const { toast } = useToast();
 
@@ -156,10 +156,16 @@ export default function ApprovalsPage() {
  }
 
  const handleApprove = async (taskId: string, taskAssigneeIds?: string[] | null) => {
-    if (!supabase || !currentUser) { // Ensure currentUser is available for triggered_by_user_id
+    if (!supabase || !currentUser) { 
       toast({ title: "Error", description: "Supabase client or user session not available.", variant: "destructive" });
       return;
     }
+    const taskToNotify = tasks.find(t => t.id === taskId);
+    if (!taskToNotify) {
+        toast({ title: "Error", description: "Task details not found for notification.", variant: "destructive" });
+        return;
+    }
+
     try {
       const { error: updateError } = await supabase
         .from('tasks')
@@ -168,14 +174,12 @@ export default function ApprovalsPage() {
 
       if (updateError) throw updateError;
 
-      let toastDescription = `Task ID ${taskId} has been approved.`;
+      let toastDescription = `Task "${taskToNotify.title}" has been approved.`;
 
-      // Create notifications for assignees
-      if (taskAssigneeIds && taskAssigneeIds.length > 0) {
-        const taskTitle = tasks.find(t => t.id === taskId)?.title || 'your task';
+      if (taskAssigneeIds && taskAssigneeIds.length > 0 && currentUser) {
         const notificationsToInsert = taskAssigneeIds.map(assigneeId => ({
             user_id: assigneeId,
-            message: `Your task "${taskTitle}" has been approved by ${currentUser.name}!`,
+            message: `Your task "${taskToNotify.title}" has been approved by ${currentUser.name}!`,
             type: 'task_approved' as const,
             link: `/tasks/${taskId}`,
             task_id: taskId,
@@ -203,11 +207,17 @@ export default function ApprovalsPage() {
     }
   };
 
-  const handleReject = async (taskId: string) => {
-    if (!supabase) {
-      toast({ title: "Error", description: "Supabase client not available.", variant: "destructive" });
+  const handleReject = async (taskId: string, taskAssigneeIds?: string[] | null) => {
+    if (!supabase || !currentUser) {
+      toast({ title: "Error", description: "Supabase client or user session not available.", variant: "destructive" });
       return;
     }
+    const taskToNotify = tasks.find(t => t.id === taskId);
+     if (!taskToNotify) {
+        toast({ title: "Error", description: "Task details not found for notification.", variant: "destructive" });
+        return;
+    }
+
     try {
       const { error: updateError } = await supabase
         .from('tasks')
@@ -216,8 +226,31 @@ export default function ApprovalsPage() {
 
       if (updateError) throw updateError;
 
-      toast({ title: "Task Rejected", description: `Task ID ${taskId} has been sent back to 'In Progress'.`, variant: "default"});
-      // Optionally, send a notification to assignees that the task was rejected.
+      let toastDescription = `Task "${taskToNotify.title}" has been sent back to 'In Progress'.`;
+
+      if (taskAssigneeIds && taskAssigneeIds.length > 0 && currentUser) {
+        const notificationsToInsert = taskAssigneeIds.map(assigneeId => ({
+            user_id: assigneeId,
+            message: `Your task "${taskToNotify.title}" was reviewed by ${currentUser.name} and moved back to 'In Progress'.`,
+            type: 'task_rejected' as const,
+            link: `/tasks/${taskId}`,
+            task_id: taskId,
+            triggered_by_user_id: currentUser.id, 
+        }));
+        
+        if (notificationsToInsert.length > 0) {
+            const { error: notificationError } = await supabase
+                .from('notifications')
+                .insert(notificationsToInsert);
+            if (notificationError) {
+                console.error("Error creating rejection notifications:", notificationError);
+                toastDescription += " Assignees notified (with potential errors).";
+            } else {
+                 toastDescription += " Assignees have been notified.";
+            }
+        }
+      }
+      toast({ title: "Task Rejected", description: toastDescription, variant: "default"});
       fetchPendingApprovalTasks(); 
     } catch (e: any) {
       const displayMessage = e.message || e.details || 'Could not reject task.';
@@ -290,7 +323,7 @@ export default function ApprovalsPage() {
                           <Button variant="ghost" size="icon" className="text-green-600 hover:text-green-700" onClick={() => handleApprove(task.id, task.assignee_ids)} aria-label="Approve task" disabled={!supabase}>
                             <CheckCircle2 className="h-4 w-4" />
                           </Button>
-                          <Button variant="ghost" size="icon" className="text-destructive hover:text-destructive" onClick={() => handleReject(task.id)} aria-label="Reject task" disabled={!supabase}>
+                          <Button variant="ghost" size="icon" className="text-destructive hover:text-destructive" onClick={() => handleReject(task.id, task.assignee_ids)} aria-label="Reject task" disabled={!supabase}>
                             <XCircle className="h-4 w-4" />
                           </Button>
                         </div>

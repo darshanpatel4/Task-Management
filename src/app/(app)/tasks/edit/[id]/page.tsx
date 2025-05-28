@@ -78,6 +78,7 @@ export default function EditTaskPage() {
       priority: 'Medium',
       status: 'Pending',
       project_id: '',
+      dueDate: new Date(),
     },
   });
 
@@ -179,24 +180,23 @@ export default function EditTaskPage() {
 
       const newAssigneeIds = values.assignee_ids || [];
       const currentOriginalAssigneeIds = originalAssigneeIds || [];
-      const newlyAssigned = newAssigneeIds.filter(id => !currentOriginalAssigneeIds.includes(id));
       
+      const newlyAssigned = newAssigneeIds.filter(id => !currentOriginalAssigneeIds.includes(id));
+      // const unassigned = currentOriginalAssigneeIds.filter(id => !newAssigneeIds.includes(id)); // For future "unassigned" notifications
+
       if (newlyAssigned.length > 0 && currentUser) {
-        const notificationsToInsert = newlyAssigned.map(assigneeId => {
-          const assignee = allUsers.find(u => u.id === assigneeId);
-          return {
+        const notificationsToInsert = newlyAssigned.map(assigneeId => ({
             user_id: assigneeId,
-            message: `${currentUser.name} assigned you a task: "${values.title}".`,
+            message: `${currentUser.name} assigned you the task: "${values.title}".`,
             link: `/tasks/${task.id}`,
             type: 'task_assigned' as const,
             task_id: task.id,
             triggered_by_user_id: currentUser.id,
-          };
-        });
-
+        }));
+        
         const { error: notificationError } = await supabase
-          .from('notifications')
-          .insert(notificationsToInsert);
+            .from('notifications')
+            .insert(notificationsToInsert);
         
         if (notificationError) {
           console.error("Error creating assignment notifications on edit:", notificationError);
@@ -211,8 +211,7 @@ export default function EditTaskPage() {
         description: toastDescription,
       });
       router.push(`/tasks/${task.id}`);
-    } catch (error: any)
-     {
+    } catch (error: any) {
       console.error(`Error updating task. Code: ${error.code}, Message: ${error.message}, Details: ${error.details}, Hint: ${error.hint}. Full error object:`, error);
       let displayMessage = 'An unexpected error occurred. Please try again.';
       if (error.message) {
@@ -348,7 +347,7 @@ export default function EditTaskPage() {
                             >
                               {user.name}
                             </DropdownMenuCheckboxItem>
-                          )) : <DropdownMenuItem disabled>No users available</DropdownMenuItem>}
+                          )) : <DropdownMenuCheckboxItem disabled>No users available</DropdownMenuCheckboxItem>}
                         </ScrollArea>
                       </DropdownMenuContent>
                     </DropdownMenu>

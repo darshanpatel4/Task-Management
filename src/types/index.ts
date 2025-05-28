@@ -62,11 +62,17 @@ export interface NavItem {
   label: string;
   icon: React.ElementType;
   adminOnly?: boolean;
-  children?: NavItem[];
   activePathPrefix?: string;
 }
 
-export type NotificationType = 'new_comment' | 'new_log' | 'task_assigned' | 'task_approved' | 'task_completed_for_approval' | 'generic';
+export type NotificationType = 
+  | 'new_comment_on_task' // Changed from 'new_comment' for specificity
+  | 'new_log' 
+  | 'task_assigned' 
+  | 'task_approved' 
+  | 'task_completed_for_approval' 
+  | 'task_rejected' // Added
+  | 'generic';
 
 export interface NotificationItem {
   id: string;

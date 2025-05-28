@@ -82,7 +82,7 @@ export default function TaskDetailPage() {
           setTask(null);
           setError('Task not found.');
         } else {
-          throw fetchError; // Rethrow to be caught by the main catch block
+          throw fetchError; 
         }
       } else if (data) {
         const fetchedTask: Task = {
@@ -91,7 +91,7 @@ export default function TaskDetailPage() {
           description: data.description,
           dueDate: data.due_date,
           createdAt: data.created_at,
-          assignee_ids: data.assignee_ids || [], // Ensure assignee_ids is an array
+          assignee_ids: data.assignee_ids || [], 
           projectId: data.project_id,
           projectName: data.project?.name || 'N/A',
           priority: data.priority as TaskPriority,
@@ -179,6 +179,35 @@ export default function TaskDetailPage() {
       setTask(prevTask => prevTask ? { ...prevTask, comments: updatedComments } : null);
       setNewComment('');
       toast({ title: 'Success', description: 'Comment added.' });
+
+      // Create notifications for new comment
+      if (task.assignee_ids && currentUser && supabase) {
+        const recipients = new Set<string>();
+        if (task.assignee_ids) task.assignee_ids.forEach(id => recipients.add(id));
+        if (task.user_id) recipients.add(task.user_id); // Task creator
+
+        const notificationsToInsert = Array.from(recipients)
+          .filter(id => id !== currentUser.id) // Don't notify the commenter
+          .map(recipientId => ({
+            user_id: recipientId,
+            message: `${currentUser.name} commented on task "${task.title}": "${newCommentObject.comment.substring(0, 50)}..."`,
+            link: `/tasks/${task.id}`,
+            type: 'new_comment_on_task' as const,
+            task_id: task.id,
+            triggered_by_user_id: currentUser.id,
+          }));
+
+        if (notificationsToInsert.length > 0) {
+          const { error: notificationError } = await supabase
+            .from('notifications')
+            .insert(notificationsToInsert);
+          if (notificationError) {
+            console.error("TaskDetailPage: Error creating new_comment_on_task notifications. Code:", notificationError.code, "Message:", notificationError.message, "Details:", notificationError.details, "Hint:", notificationError.hint, "Full Error:", notificationError);
+            toast({ title: "Notification Error", description: "Comment added, but failed to notify relevant users.", variant: "default", duration: 5000 });
+          }
+        }
+      }
+
     } catch (e: any) {
       console.error('Error adding comment:', e);
       toast({ title: 'Error Adding Comment', description: e.message || "Could not add comment.", variant: 'destructive' });
@@ -233,7 +262,6 @@ export default function TaskDetailPage() {
     
     const isCurrentUserAnAssigneeForThisAction = currentUser && task.assignee_ids && task.assignee_ids.includes(currentUser.id);
 
-    // Client-side permission checks
     if (newStatus === 'Completed') {
       if (!isCurrentUserAnAssigneeForThisAction) {
         console.log(`TaskDetailPage: handleUpdateStatus - "Completed" permission denied. Reason: User is not an assignee. CurrentUser ID: ${currentUser?.id}, Task Assignee IDs: ${task.assignee_ids?.join(', ')}`);
@@ -254,15 +282,15 @@ export default function TaskDetailPage() {
          setIsUpdatingStatus(false);
         return;
       }
-    } else if (newStatus === 'In Progress' && task.status === 'Completed') { // Admin rejecting
+    } else if (newStatus === 'In Progress' && task.status === 'Completed') { 
         if (!isAdmin) {
           console.log('TaskDetailPage: handleUpdateStatus - Admin reject permission denied. Reason: Not an admin.');
           toast({ title: "Invalid Action", description: "Only an admin can send a 'Completed' task back to 'In Progress'.", variant: "destructive"});
           setIsUpdatingStatus(false);
           return;
         }
-    } else if (newStatus === 'In Progress' && task.status === 'Pending') { // User starting a pending task
-        if (!isCurrentUserAnAssigneeForThisAction && !isAdmin) { // Admin can also start any task
+    } else if (newStatus === 'In Progress' && task.status === 'Pending') { 
+        if (!isCurrentUserAnAssigneeForThisAction && !isAdmin) { 
             console.log(`TaskDetailPage: handleUpdateStatus - "In Progress" from "Pending" permission denied. Reason: Not assignee or admin. IsAssignee: ${isCurrentUserAnAssigneeForThisAction}, IsAdmin: ${isAdmin}`);
             toast({ title: "Permission Denied", description: "You cannot change the task to 'In Progress'.", variant: "destructive"});
             setIsUpdatingStatus(false);
@@ -286,7 +314,6 @@ export default function TaskDetailPage() {
       setTask(prevTask => prevTask ? { ...prevTask, status: newStatus } : null);
       toast({ title: "Status Updated", description: `Task status changed to ${newStatus}.` });
 
-      // Notify admins if a non-admin marks a task as 'Completed'
       if (newStatus === 'Completed' && !isAdmin && currentUser) {
         const { data: adminProfiles, error: adminFetchError } = await supabase
           .from('profiles')
@@ -297,9 +324,9 @@ export default function TaskDetailPage() {
           console.error('TaskDetailPage: Error fetching admin profiles for notification:', adminFetchError);
         } else if (adminProfiles && adminProfiles.length > 0) {
           const notificationsToInsert = adminProfiles.map(admin => ({
-            user_id: admin.id, // Admin is the recipient
+            user_id: admin.id,
             message: `${currentUser.name} marked task "${task.title}" as completed. It's ready for approval.`,
-            link: `/admin/approvals`, // Or `/tasks/${task.id}`
+            link: `/admin/approvals`,
             type: 'task_completed_for_approval' as const,
             task_id: task.id,
             triggered_by_user_id: currentUser.id,
@@ -316,6 +343,24 @@ export default function TaskDetailPage() {
               toast({ title: "Admins Notified", description: "Admins have been notified that the task is ready for approval.", variant: "default" });
             }
           }
+        }
+      } else if (newStatus === 'In Progress' && task.status === 'Completed' && isAdmin && currentUser) {
+        // Admin rejected a task (moved from Completed to In Progress)
+        if (task.assignee_ids && task.assignee_ids.length > 0) {
+            const notificationsToInsert = task.assignee_ids.map(assigneeId => ({
+                user_id: assigneeId,
+                message: `Your task "${task.title}" was reviewed by ${currentUser.name} and moved back to 'In Progress'.`,
+                link: `/tasks/${task.id}`,
+                type: 'task_rejected' as const,
+                task_id: task.id,
+                triggered_by_user_id: currentUser.id,
+            }));
+            if (notificationsToInsert.length > 0) {
+                const { error: notificationError } = await supabase.from('notifications').insert(notificationsToInsert);
+                if (notificationError) {
+                    console.error("TaskDetailPage: Error creating 'task_rejected' notifications (admin reject from detail):", notificationError);
+                }
+            }
         }
       }
 
