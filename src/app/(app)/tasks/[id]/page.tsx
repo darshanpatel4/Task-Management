@@ -91,7 +91,7 @@ export default function TaskDetailPage() {
           description: data.description,
           dueDate: data.due_date,
           createdAt: data.created_at,
-          assignee_ids: data.assignee_ids || [], 
+          assignee_ids: Array.isArray(data.assignee_ids) ? data.assignee_ids : [], 
           projectId: data.project_id,
           projectName: data.project?.name || 'N/A',
           priority: data.priority as TaskPriority,
@@ -181,12 +181,14 @@ export default function TaskDetailPage() {
       setNewComment('');
       toast({ title: 'Success', description: 'Comment added.' });
 
-      if (task.assignee_ids && currentUser && supabase) {
+      if (currentUser && supabase) {
         const recipients = new Set<string>();
-        task.assignee_ids.forEach(id => {
+        // Notify other assignees
+        (task.assignee_ids || []).forEach(id => {
           if (id !== currentUser.id) recipients.add(id);
         });
-        if (task.user_id && task.user_id !== currentUser.id && !task.assignee_ids.includes(task.user_id)) {
+        // Notify task creator if not the commenter and not already in assignees set for this notification
+        if (task.user_id && task.user_id !== currentUser.id && !recipients.has(task.user_id)) {
             recipients.add(task.user_id);
         }
 
@@ -195,7 +197,7 @@ export default function TaskDetailPage() {
             user_id: recipientId,
             message: `${currentUser.name} commented on task "${task.title}": "${newCommentObject.comment.substring(0, 50)}..."`,
             link: `/tasks/${task.id}`,
-            type: 'new_comment_on_task' as const,
+            type: 'new_comment_on_task' as NotificationType,
             task_id: task.id,
             triggered_by_user_id: currentUser.id,
           }));
@@ -207,8 +209,8 @@ export default function TaskDetailPage() {
             .insert(notificationsToInsert);
           if (notificationError) {
             let toastMessage = "Comment added, but failed to notify relevant users.";
-            if (notificationError.code === '42501') { // RLS violation
-                 toastMessage += " Please check notification insert permissions.";
+             if (notificationError.code === '42501') { 
+                 toastMessage = "Comment added. Failed to send notifications: Check RLS policy for inserting 'new_comment_on_task' notifications.";
             } else if (notificationError.message) {
                  toastMessage += ` Error: ${notificationError.message}`;
             }
@@ -326,6 +328,7 @@ export default function TaskDetailPage() {
       setTask(prevTask => prevTask ? { ...prevTask, status: newStatus } : null); 
       toast({ title: "Status Updated", description: `Task status changed to ${newStatus}.` });
 
+      // Notification logic:
       if (newStatus === 'Completed' && !isAdmin && currentUser && supabase) { 
         console.log(`TaskDetailPage: User ${currentUser.id} marked task ${task.id} as completed. Notifying admins.`);
         const { data: adminProfiles, error: adminFetchError } = await supabase
@@ -340,7 +343,7 @@ export default function TaskDetailPage() {
             user_id: admin.id, 
             message: `${currentUser.name} marked task "${task.title}" as completed. It's ready for approval.`,
             link: `/admin/approvals`, 
-            type: 'task_completed_for_approval' as const,
+            type: 'task_completed_for_approval' as NotificationType,
             task_id: task.id,
             triggered_by_user_id: currentUser.id, 
           }));
@@ -351,13 +354,13 @@ export default function TaskDetailPage() {
               .from('notifications')
               .insert(notificationsToInsert);
             if (notificationError) {
-              console.error("TaskDetailPage: Error creating 'task_completed_for_approval' notifications. Code:", notificationError.code, "Message:", notificationError.message, "Details:", notificationError.details, "Hint:", notificationError.hint, "Full Error:", notificationError);
               let toastMessage = "Task completed, but failed to notify admins.";
-              if (notificationError.code === '42501') { 
-                toastMessage += " Please ensure RLS policy allows users to insert 'task_completed_for_approval' notifications for Admins.";
-              } else if (notificationError.message) {
-                toastMessage += ` Error: ${notificationError.message}`;
-              }
+               if (notificationError.code === '42501') { 
+                 toastMessage = "Task completed. Failed to send notifications: Check RLS policy for inserting 'task_completed_for_approval' notifications by users.";
+               } else if (notificationError.message) {
+                 toastMessage += ` Error: ${notificationError.message}`;
+               }
+              console.error("TaskDetailPage: Error creating 'task_completed_for_approval' notifications. Code:", notificationError.code, "Message:", notificationError.message, "Details:", notificationError.details, "Hint:", notificationError.hint, "Full Error:", notificationError);
               toast({ title: "Notification Error", description: toastMessage, variant: "default", duration: 7000 });
             } else {
               toast({ title: "Admins Notified", description: "Admins have been notified that the task is ready for approval.", variant: "default" });
@@ -370,7 +373,7 @@ export default function TaskDetailPage() {
             user_id: assigneeId,
             message: `Your task "${task.title}" has been approved by ${currentUser.name}.`,
             link: `/tasks/${task.id}`,
-            type: 'task_approved' as const,
+            type: 'task_approved' as NotificationType,
             task_id: task.id,
             triggered_by_user_id: currentUser.id,
         }));
@@ -387,7 +390,7 @@ export default function TaskDetailPage() {
             user_id: assigneeId,
             message: `Your task "${task.title}" was reviewed by ${currentUser.name} and moved back to 'In Progress'.`,
             link: `/tasks/${task.id}`,
-            type: 'task_rejected' as const,
+            type: 'task_rejected' as NotificationType,
             task_id: task.id,
             triggered_by_user_id: currentUser.id,
         }));
@@ -646,5 +649,3 @@ export default function TaskDetailPage() {
     </div>
   );
 }
-
-
