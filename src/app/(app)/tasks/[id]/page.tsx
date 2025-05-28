@@ -65,7 +65,7 @@ export default function TaskDetailPage() {
 
     setIsLoading(true);
     setError(null);
-    setAssigneeDetails([]);
+    setAssigneeDetails([]); 
 
     try {
       const { data, error: fetchError } = await supabase
@@ -82,7 +82,7 @@ export default function TaskDetailPage() {
           setTask(null);
           setError('Task not found.');
         } else {
-          throw fetchError;
+          throw fetchError; 
         }
       } else if (data) {
         const fetchedTask: Task = {
@@ -91,14 +91,14 @@ export default function TaskDetailPage() {
           description: data.description,
           dueDate: data.due_date,
           createdAt: data.created_at,
-          assignee_ids: data.assignee_ids || [],
+          assignee_ids: data.assignee_ids || [], 
           projectId: data.project_id,
           projectName: data.project?.name || 'N/A',
           priority: data.priority as TaskPriority,
           status: data.status as TaskStatus,
-          user_id: data.user_id,
-          comments: Array.isArray(data.comments) ? data.comments : [],
-          logs: Array.isArray(data.logs) ? data.logs : [],
+          user_id: data.user_id, 
+          comments: Array.isArray(data.comments) ? data.comments : [], 
+          logs: Array.isArray(data.logs) ? data.logs : [], 
         };
         setTask(fetchedTask);
 
@@ -115,6 +115,7 @@ export default function TaskDetailPage() {
             setAssigneeDetails(profilesData.map(p => ({ id: p.id, name: p.full_name || 'N/A', avatar: p.avatar_url || undefined })));
           }
         }
+
       } else {
         setTask(null);
         setError('Task not found.');
@@ -141,7 +142,7 @@ export default function TaskDetailPage() {
       console.error(
         `Error fetching task details. Supabase Code: ${supabaseErrorCode}, Message: ${supabaseErrorMessage}, Details: ${supabaseErrorDetails}, Hint: ${supabaseErrorHint}. Processed display message: ${displayMessage}`, e
       );
-      console.error('Full error object fetching task details:', e);
+      console.error('Full error object fetching task details:', e); 
       setError(displayMessage);
       toast({ title: 'Error Fetching Task', description: displayMessage, variant: 'destructive' });
     } finally {
@@ -180,18 +181,16 @@ export default function TaskDetailPage() {
       setNewComment('');
       toast({ title: 'Success', description: 'Comment added.' });
 
-      // Create notifications for new comment
       if (task.assignee_ids && currentUser && supabase) {
         const recipients = new Set<string>();
-        if (task.assignee_ids) task.assignee_ids.forEach(id => recipients.add(id));
-        // Optionally notify task creator if they are not an assignee and not the commenter
-        if (task.user_id && !recipients.has(task.user_id) && task.user_id !== currentUser.id) {
+        task.assignee_ids.forEach(id => {
+          if (id !== currentUser.id) recipients.add(id);
+        });
+        if (task.user_id && task.user_id !== currentUser.id && !task.assignee_ids.includes(task.user_id)) {
             recipients.add(task.user_id);
         }
 
-
         const notificationsToInsert = Array.from(recipients)
-          .filter(id => id !== currentUser.id) // Don't notify the commenter
           .map(recipientId => ({
             user_id: recipientId,
             message: `${currentUser.name} commented on task "${task.title}": "${newCommentObject.comment.substring(0, 50)}..."`,
@@ -202,12 +201,19 @@ export default function TaskDetailPage() {
           }));
 
         if (notificationsToInsert.length > 0) {
+          console.log("TaskDetailPage: Notifications to insert for new comment:", notificationsToInsert);
           const { error: notificationError } = await supabase
             .from('notifications')
             .insert(notificationsToInsert);
           if (notificationError) {
-            console.error("TaskDetailPage: Error creating new_comment_on_task notifications. Code:", notificationError.code, "Message:", notificationError.message, "Details:", notificationError.details, "Hint:", notificationError.hint, "Full Error:", notificationError);
-            toast({ title: "Notification Error", description: "Comment added, but failed to notify relevant users.", variant: "default", duration: 5000 });
+            let toastMessage = "Comment added, but failed to notify relevant users.";
+            if (notificationError.code === '42501') { // RLS violation
+                 toastMessage += " Please check notification insert permissions.";
+            } else if (notificationError.message) {
+                 toastMessage += ` Error: ${notificationError.message}`;
+            }
+            console.error("TaskDetailPage: Error creating 'new_comment_on_task' notifications. Code:", notificationError.code, "Message:", notificationError.message, "Details:", notificationError.details, "Hint:", notificationError.hint, "Full Error:", notificationError);
+            toast({ title: "Notification Error", description: toastMessage, variant: "default", duration: 7000 });
           }
         }
       }
@@ -266,16 +272,17 @@ export default function TaskDetailPage() {
     
     const isCurrentUserAnAssigneeForThisAction = currentUser && task.assignee_ids && task.assignee_ids.includes(currentUser.id);
 
-    // Client-side permission checks
     if (newStatus === 'Completed') {
       if (!isCurrentUserAnAssigneeForThisAction) {
-        console.log(`TaskDetailPage: handleUpdateStatus - "Completed" permission denied. Reason: User is not an assignee. CurrentUser ID: ${currentUser?.id}, Task Assignee IDs: ${task.assignee_ids?.join(', ')}`);
+        const denyMsg = `TaskDetailPage: handleUpdateStatus - "Completed" permission denied. Reason: User is not an assignee. CurrentUser ID: ${currentUser?.id}, Task Assignee IDs: ${task.assignee_ids?.join(', ')}`;
+        console.log(denyMsg);
         toast({ title: "Permission Denied", description: "Only an assigned user can mark this task as 'Completed'.", variant: "destructive"});
         setIsUpdatingStatus(false);
         return;
       }
       if (!(task.status === 'In Progress' || task.status === 'Pending')) {
-        console.log(`TaskDetailPage: handleUpdateStatus - "Completed" permission denied. Reason: Task status is '${task.status}', not 'In Progress' or 'Pending'.`);
+        const denyMsg = `TaskDetailPage: handleUpdateStatus - "Completed" permission denied. Reason: Task status is '${task.status}', not 'In Progress' or 'Pending'.`;
+        console.log(denyMsg);
         toast({ title: "Invalid Action", description: `Task cannot be marked 'Completed' from current status '${task.status}'. Must be 'In Progress' or 'Pending'.`, variant: "destructive"});
         setIsUpdatingStatus(false);
         return;
@@ -287,14 +294,14 @@ export default function TaskDetailPage() {
          setIsUpdatingStatus(false);
         return;
       }
-    } else if (newStatus === 'In Progress' && task.status === 'Completed') {
+    } else if (newStatus === 'In Progress' && task.status === 'Completed') { 
         if (!isAdmin) {
           console.log('TaskDetailPage: handleUpdateStatus - Admin reject permission denied. Reason: Not an admin.');
           toast({ title: "Invalid Action", description: "Only an admin can send a 'Completed' task back to 'In Progress'.", variant: "destructive"});
           setIsUpdatingStatus(false);
           return;
         }
-    } else if (newStatus === 'In Progress' && task.status === 'Pending') {
+    } else if (newStatus === 'In Progress' && task.status === 'Pending') { 
         if (!isCurrentUserAnAssigneeForThisAction && !isAdmin) {
             console.log(`TaskDetailPage: handleUpdateStatus - "In Progress" from "Pending" permission denied. Reason: Not assignee or admin. IsAssignee: ${isCurrentUserAnAssigneeForThisAction}, IsAdmin: ${isAdmin}`);
             toast({ title: "Permission Denied", description: "You cannot change the task to 'In Progress'.", variant: "destructive"});
@@ -316,11 +323,11 @@ export default function TaskDetailPage() {
         throw updateError;
       }
 
-      setTask(prevTask => prevTask ? { ...prevTask, status: newStatus } : null); // Update local state
+      setTask(prevTask => prevTask ? { ...prevTask, status: newStatus } : null); 
       toast({ title: "Status Updated", description: `Task status changed to ${newStatus}.` });
 
-      // Notification Logic
-      if (newStatus === 'Completed' && !isAdmin && currentUser && supabase) { // User marks task as completed
+      if (newStatus === 'Completed' && !isAdmin && currentUser && supabase) { 
+        console.log(`TaskDetailPage: User ${currentUser.id} marked task ${task.id} as completed. Notifying admins.`);
         const { data: adminProfiles, error: adminFetchError } = await supabase
           .from('profiles')
           .select('id')
@@ -330,28 +337,35 @@ export default function TaskDetailPage() {
           console.error('TaskDetailPage: Error fetching admin profiles for notification:', adminFetchError);
         } else if (adminProfiles && adminProfiles.length > 0) {
           const notificationsToInsert = adminProfiles.map(admin => ({
-            user_id: admin.id,
+            user_id: admin.id, 
             message: `${currentUser.name} marked task "${task.title}" as completed. It's ready for approval.`,
-            link: `/admin/approvals`, // Link to general approvals page
+            link: `/admin/approvals`, 
             type: 'task_completed_for_approval' as const,
             task_id: task.id,
-            triggered_by_user_id: currentUser.id,
+            triggered_by_user_id: currentUser.id, 
           }));
 
           if (notificationsToInsert.length > 0) {
+            console.log("TaskDetailPage: Notifications to insert for task_completed_for_approval:", notificationsToInsert);
             const { error: notificationError } = await supabase
               .from('notifications')
               .insert(notificationsToInsert);
             if (notificationError) {
               console.error("TaskDetailPage: Error creating 'task_completed_for_approval' notifications. Code:", notificationError.code, "Message:", notificationError.message, "Details:", notificationError.details, "Hint:", notificationError.hint, "Full Error:", notificationError);
-              toast({ title: "Notification Error", description: "Task completed, but failed to notify admins.", variant: "default", duration: 7000 });
+              let toastMessage = "Task completed, but failed to notify admins.";
+              if (notificationError.code === '42501') { 
+                toastMessage += " Please ensure RLS policy allows users to insert 'task_completed_for_approval' notifications for Admins.";
+              } else if (notificationError.message) {
+                toastMessage += ` Error: ${notificationError.message}`;
+              }
+              toast({ title: "Notification Error", description: toastMessage, variant: "default", duration: 7000 });
             } else {
               toast({ title: "Admins Notified", description: "Admins have been notified that the task is ready for approval.", variant: "default" });
             }
           }
         }
-      } else if (newStatus === 'Approved' && isAdmin && currentUser && task.assignee_ids && task.assignee_ids.length > 0 && supabase) { // Admin approves task
-        console.log(`TaskDetailPage: Admin approved task "${task.title}". Assignees:`, task.assignee_ids);
+      } else if (newStatus === 'Approved' && isAdmin && currentUser && task.assignee_ids && task.assignee_ids.length > 0 && supabase) { 
+        console.log(`TaskDetailPage: Admin ${currentUser.id} approved task "${task.title}". Assignees to notify:`, task.assignee_ids);
         const notificationsToInsert = task.assignee_ids.map(assigneeId => ({
             user_id: assigneeId,
             message: `Your task "${task.title}" has been approved by ${currentUser.name}.`,
@@ -364,12 +378,11 @@ export default function TaskDetailPage() {
         if (notificationsToInsert.length > 0) {
             const { error: notificationError } = await supabase.from('notifications').insert(notificationsToInsert);
             if (notificationError) {
-                console.error("TaskDetailPage: Error creating 'task_approved' notifications (admin approve from detail):", notificationError);
+                console.error("TaskDetailPage: Error creating 'task_approved' notifications (admin approve). Code:", notificationError.code, "Message:", notificationError.message, "Details:", notificationError.details, "Hint:", notificationError.hint, "Full Error:", notificationError);
             }
         }
       } else if (newStatus === 'In Progress' && task.status === 'Completed' && isAdmin && currentUser && task.assignee_ids && task.assignee_ids.length > 0 && supabase) {
-        // Admin rejected a task (moved from Completed to In Progress)
-        console.log(`TaskDetailPage: Admin rejected task "${task.title}". Assignees:`, task.assignee_ids);
+        console.log(`TaskDetailPage: Admin ${currentUser.id} rejected task "${task.title}". Assignees to notify:`, task.assignee_ids);
         const notificationsToInsert = task.assignee_ids.map(assigneeId => ({
             user_id: assigneeId,
             message: `Your task "${task.title}" was reviewed by ${currentUser.name} and moved back to 'In Progress'.`,
@@ -382,7 +395,7 @@ export default function TaskDetailPage() {
         if (notificationsToInsert.length > 0) {
             const { error: notificationError } = await supabase.from('notifications').insert(notificationsToInsert);
             if (notificationError) {
-                console.error("TaskDetailPage: Error creating 'task_rejected' notifications (admin reject from detail):", notificationError);
+                console.error("TaskDetailPage: Error creating 'task_rejected' notifications (admin reject). Code:", notificationError.code, "Message:", notificationError.message, "Details:", notificationError.details, "Hint:", notificationError.hint, "Full Error:", notificationError);
             }
         }
       }
@@ -420,7 +433,6 @@ export default function TaskDetailPage() {
     }
   };
 
-  // Diagnostic log added here for client-side permission evaluation
   const isCurrentUserAnAssignee = !!(currentUser && task && task.assignee_ids && task.assignee_ids.includes(currentUser.id));
   const canMarkCompleted = isCurrentUserAnAssignee && task && (task.status === 'In Progress' || task.status === 'Pending');
   const canAdminApprove = isAdmin && task && task.status === 'Completed';
@@ -428,7 +440,7 @@ export default function TaskDetailPage() {
   const canLogTime = isCurrentUserAnAssignee && task && (task.status === 'In Progress' || task.status === 'Pending');
   const canStartTask = (isCurrentUserAnAssignee || isAdmin) && task && task.status === 'Pending';
 
-  if (!isLoading && task) { // Moved this log to only run when task data is available
+  if (!isLoading && task) { 
     console.log('TaskDetailPage Render:', { taskId: task?.id, currentUserRole: currentUser?.role, currentUserId: currentUser?.id, taskAssigneeIds: task?.assignee_ids, taskStatus: task?.status, isCurrentUserAnAssignee, canMarkCompleted, isAdmin, canAdminApprove, canAdminReject, canLogTime, canStartTask });
   }
 
@@ -634,4 +646,5 @@ export default function TaskDetailPage() {
     </div>
   );
 }
+
 
