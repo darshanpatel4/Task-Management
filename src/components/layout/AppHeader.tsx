@@ -5,7 +5,7 @@ import Link from 'next/link';
 import { SidebarTrigger, useSidebar } from '@/components/ui/sidebar';
 import { Button } from '@/components/ui/button';
 import { useAuth } from '@/context/AuthContext';
-import { LogOut, UserCircle, Moon, Sun, Bell, Package, Briefcase, CheckCircle2, Check, MessageSquare, History } from 'lucide-react'; // Removed Settings icon
+import { LogOut, UserCircle, Moon, Sun, Bell, Package, Briefcase, CheckCircle2, Check, MessageSquare, History, User as UserIconLucide } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import {
   DropdownMenu,
@@ -50,7 +50,13 @@ export function AppHeader() {
         .order('created_at', { ascending: false })
         .limit(10); 
 
-      if (error) throw error;
+      if (error) {
+        let errorMsg = `Error fetching notifications. Code: ${error.code}, Message: ${error.message}`;
+        if (error.details) errorMsg += `, Details: ${error.details}`;
+        if (error.hint) errorMsg += `, Hint: ${error.hint}`;
+        console.error(errorMsg, error);
+        throw error;
+      }
       
       console.log("AppHeader: Fetched notifications:", data);
       setNotifications(data || []);
@@ -59,8 +65,14 @@ export function AppHeader() {
       console.log("AppHeader: Unread count set to:", currentUnread);
 
     } catch (err: any) {
-      console.error('AppHeader: Error fetching notifications. Code:', err.code, 'Message:', err.message, 'Details:', err.details, 'Hint:', err.hint, 'Full Error:', err);
-      toast({ title: 'Error', description: 'Could not fetch notifications.', variant: 'destructive' });
+      // err might be the re-thrown error or a new one
+      let finalErrorMsg = 'Could not fetch notifications.';
+      if (err.message) finalErrorMsg = err.message;
+      else if (typeof err === 'object' && err !== null) finalErrorMsg = JSON.stringify(err);
+      else if (err) finalErrorMsg = String(err);
+      
+      console.error('AppHeader: Error fetching notifications (final catch). Full error:', err);
+      toast({ title: 'Error', description: finalErrorMsg, variant: 'destructive' });
     } finally {
       setIsLoadingNotifications(false);
     }
@@ -81,8 +93,7 @@ export function AppHeader() {
         { event: 'INSERT', schema: 'public', table: 'notifications', filter: `user_id=eq.${currentUser.id}` },
         (payload) => {
           console.log('AppHeader: New notification received via realtime:', payload.new);
-          // Add to start of notifications list & update unread count
-          setNotifications(prev => [payload.new as NotificationItem, ...prev.slice(0,9)]); // Keep list to 10
+          setNotifications(prev => [payload.new as NotificationItem, ...prev.slice(0,9)]); 
           setUnreadCount(prev => prev + 1);
           toast({title: "New Notification", description: (payload.new as NotificationItem).message});
         }
@@ -136,7 +147,7 @@ export function AppHeader() {
         .eq('id', notification.id);
 
       if (error) {
-        console.error('AppHeader: Error marking notification as read. Code:', error.code, 'Message:', error.message, 'Details:', error.details, 'Hint:', error.hint, 'Full Error:', error);
+        console.error('AppHeader: Error marking notification as read. Code:', error.code, "Message:", error.message, "Details:", error.details, "Hint:", error.hint, "Full Error:", error);
         toast({ title: 'Error', description: 'Could not mark notification as read.', variant: 'destructive' });
       } else {
         setNotifications(prev => prev.map(n => n.id === notification.id ? { ...n, is_read: true } : n));
@@ -161,7 +172,7 @@ export function AppHeader() {
       .eq('user_id', currentUser.id);
 
     if (error) {
-      console.error('AppHeader: Error marking all notifications as read. Code:', error.code, 'Message:', error.message, 'Details:', error.details, 'Hint:', error.hint, 'Full Error:', error);
+      console.error('AppHeader: Error marking all notifications as read. Code:', error.code, "Message:", error.message, "Details:", error.details, "Hint:", error.hint, "Full Error:", error);
       toast({ title: 'Error', description: 'Could not mark all notifications as read.', variant: 'destructive' });
     } else {
       setNotifications(prev => prev.map(n => ({ ...n, is_read: true })));
@@ -176,10 +187,11 @@ export function AppHeader() {
 
   const getNotificationIcon = (type?: NotificationType) => {
     switch (type) {
-      case 'new_comment': return <MessageSquare className="h-4 w-4 text-blue-500" />;
-      case 'task_assigned': return <UserCircle className="h-4 w-4 text-green-500" />;
+      case 'new_comment_on_task': return <MessageSquare className="h-4 w-4 text-blue-500" />;
+      case 'task_assigned': return <UserIconLucide className="h-4 w-4 text-green-500" />;
       case 'task_approved': return <CheckCircle2 className="h-4 w-4 text-purple-500" />;
       case 'task_completed_for_approval': return <CheckCircle2 className="h-4 w-4 text-orange-500" />;
+      case 'task_rejected': return <Briefcase className="h-4 w-4 text-red-500" />;
       case 'new_log': return <History className="h-4 w-4 text-indigo-500" />;
       default: return <Package className="h-4 w-4 text-gray-500" />;
     }
@@ -190,7 +202,7 @@ export function AppHeader() {
       <div className="flex items-center gap-2">
         {isMobile && <SidebarTrigger />}
         <Link href="/dashboard" className="text-xl font-bold text-primary">
-          TaskFlow AI
+          TaskFlow
         </Link>
       </div>
       <div className="flex items-center gap-3">
@@ -286,7 +298,6 @@ export function AppHeader() {
                 <UserCircle className="mr-2 h-4 w-4" />
                 <span>Profile</span>
               </DropdownMenuItem>
-              {/* Settings link removed from here */}
               <DropdownMenuSeparator />
               <DropdownMenuItem onClick={handleLogout}>
                 <LogOut className="mr-2 h-4 w-4" />

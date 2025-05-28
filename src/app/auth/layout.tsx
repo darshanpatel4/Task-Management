@@ -12,13 +12,13 @@ export default function AuthLayout({
           <path d="M2 17L12 22L22 17" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
           <path d="M2 12L12 17L22 12" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
         </svg>
-        <h1 className="text-3xl font-bold text-primary">TaskFlow AI</h1>
+        <h1 className="text-3xl font-bold text-primary">TaskFlow</h1>
       </div>
       <div className="w-full max-w-md rounded-xl bg-card p-8 shadow-2xl">
         {children}
       </div>
       <p className="mt-8 text-center text-sm text-muted-foreground">
-        &copy; {new Date().getFullYear()} TaskFlow AI. Manage your tasks efficiently.
+        &copy; {new Date().getFullYear()} Task Management Platform by SquareBit.
       </p>
     </div>
   );

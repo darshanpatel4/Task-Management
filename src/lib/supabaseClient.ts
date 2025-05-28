@@ -13,7 +13,7 @@ if (supabaseUrl && supabaseAnonKey) {
         autoRefreshToken: true,
         persistSession: true,
         detectSessionInUrl: true,
-      },
+      }, 
     });
     console.log("Supabase client initialized successfully.");
   } catch (error) {
