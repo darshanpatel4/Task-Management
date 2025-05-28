@@ -30,7 +30,7 @@ import { cn } from '@/lib/utils';
 import { format } from 'date-fns';
 import { useAuth } from '@/context/AuthContext';
 import { useRouter } from 'next/navigation';
-import type { TaskPriority, TaskStatus, User, Project } from '@/types';
+import type { TaskPriority, TaskStatus, User, Project, NotificationType } from '@/types';
 import { useToast } from '@/hooks/use-toast';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { supabase } from '@/lib/supabaseClient';
@@ -44,6 +44,8 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
+import { Checkbox } from '@/components/ui/checkbox';
+
 
 const taskPriorities: TaskPriority[] = ['Low', 'Medium', 'High'];
 const userSettableTaskStatuses: TaskStatus[] = ['Pending', 'In Progress'];
@@ -169,12 +171,12 @@ export default function CreateTaskPage() {
       
       if (createdTaskData && values.assignee_ids && values.assignee_ids.length > 0 && currentUser) {
         const notificationsToInsert = values.assignee_ids.map(assigneeId => ({
-            user_id: assigneeId,
+            user_id: assigneeId, // Recipient
             message: `${currentUser.name} assigned you a new task: "${values.title}".`,
             link: `/tasks/${createdTaskData.id}`,
-            type: 'task_assigned' as const,
+            type: 'task_assigned' as NotificationType, // Ensured type
             task_id: createdTaskData.id,
-            triggered_by_user_id: currentUser.id,
+            triggered_by_user_id: currentUser.id, // The admin performing the action
         }));
         
         if (notificationsToInsert.length > 0) {
@@ -190,7 +192,16 @@ export default function CreateTaskPage() {
                     "Hint:", notificationError.hint,
                     "Full Error:", notificationError
                 );
-                toastDescription += ` Assignees notified (with potential errors in notification creation).`;
+                if (notificationError.code === '42501') {
+                     toast({
+                        title: "Notification Error (Admin Action)",
+                        description: "Task created, but failed to send notifications. Please check admin permissions (RLS) for inserting notifications.",
+                        variant: "destructive",
+                        duration: 7000,
+                    });
+                } else {
+                    toastDescription += ` Assignees notified (with potential errors in notification creation: ${notificationError.message}).`;
+                }
             } else {
                  toastDescription += ` Assignees have been notified.`;
             }
@@ -456,3 +467,4 @@ export default function CreateTaskPage() {
     </Card>
   );
 }
+
