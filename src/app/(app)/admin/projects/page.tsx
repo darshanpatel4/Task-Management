@@ -102,16 +102,16 @@ export default function ProjectManagementPage() {
     router.push(`/admin/projects/edit/${projectId}`);
   };
 
-  const handleDeleteProject = async (projectId: string) => {
+  const handleDeleteProject = async (projectId: string, projectName: string) => {
     if (!supabase) {
       toast({
         title: "Supabase Not Configured",
-        description: `Cannot delete project ${projectId}. Please check Supabase setup.`,
+        description: `Cannot delete project "${projectName}". Please check Supabase setup.`,
         variant: "destructive",
       });
       return;
     }
-    if (confirm(`Are you sure you want to delete project with ID: ${projectId}? This action cannot be undone.`)) {
+    if (confirm(`Are you sure you want to delete project "${projectName}"? This action cannot be undone.`)) {
        setIsLoading(true);
        try {
         // Also delete related tasks or handle them (e.g., set project_id to null if allowed)
@@ -127,7 +127,7 @@ export default function ProjectManagementPage() {
           // For this example, we'll show a warning but proceed.
            toast({
             title: "Warning: Tasks Deletion Issue",
-            description: `Could not delete all tasks for project ${projectId}. Project deletion will proceed. Error: ${tasksDeleteError.message}`,
+            description: `Could not delete all tasks for project "${projectName}". Project deletion will proceed. Error: ${tasksDeleteError.message}`,
             variant: "default",
             duration: 7000,
           });
@@ -140,13 +140,13 @@ export default function ProjectManagementPage() {
 
         if (deleteError) throw deleteError;
         
-        toast({ title: "Project Deleted", description: `Project ${projectId} has been deleted.` });
+        toast({ title: "Project Deleted", description: `Project "${projectName}" has been deleted.` });
         setProjects(prevProjects => prevProjects.filter(p => p.id !== projectId)); 
 
        } catch (e: any) {
          toast({
             title: "Error Deleting Project",
-            description: e.message || "Could not delete the project.",
+            description: e.message || `Could not delete the project "${projectName}".`,
             variant: "destructive",
          });
        } finally {
@@ -156,7 +156,7 @@ export default function ProjectManagementPage() {
     }
   };
   
-  const getStatusBadgeVariant = (status?: ProjectStatus) => {
+  const getStatusBadgeVariant = (status?: ProjectStatus | null) => {
     switch (status) {
       case 'In Progress': return 'default';
       case 'Completed': return 'secondary'; 
@@ -171,7 +171,7 @@ export default function ProjectManagementPage() {
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center">
         <div className="mb-4 sm:mb-0">
           <h1 className="text-3xl font-bold tracking-tight">Projects</h1>
-          <p className="text-muted-foreground">Manage all projects within TaskFlow AI.</p>
+          <p className="text-muted-foreground">Manage all projects within TaskFlow.</p>
         </div>
         <Button onClick={handleCreateProject} disabled={!supabase || isLoading} className="w-full sm:w-auto">
           <PlusCircle className="mr-2 h-4 w-4" /> Create Project
@@ -234,7 +234,7 @@ export default function ProjectManagementPage() {
                             <Button variant="ghost" size="icon" onClick={() => handleEditProject(project.id)} aria-label="Edit project" disabled={!supabase || isLoading}>
                                 <Edit3 className="h-4 w-4" />
                             </Button>
-                            <Button variant="ghost" size="icon" className="text-destructive hover:text-destructive" onClick={() => handleDeleteProject(project.id)} aria-label="Delete project" disabled={!supabase || isLoading}>
+                            <Button variant="ghost" size="icon" className="text-destructive hover:text-destructive" onClick={() => handleDeleteProject(project.id, project.name)} aria-label="Delete project" disabled={!supabase || isLoading}>
                                 <Trash2 className="h-4 w-4" />
                             </Button>
                         </div>
