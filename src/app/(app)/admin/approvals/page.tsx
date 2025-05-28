@@ -20,7 +20,7 @@ interface AssigneeDisplayInfo {
 }
 
 export default function ApprovalsPage() {
-  const { currentUser, isAdmin } = useAuth(); 
+  const { currentUser, isAdmin } = useAuth();
   const router = useRouter();
   const { toast } = useToast();
 
@@ -115,7 +115,7 @@ export default function ApprovalsPage() {
       console.error(
         `Error fetching pending approval tasks. Supabase Code: ${supabaseErrorCode}, Message: ${supabaseErrorMessage}, Details: ${supabaseErrorDetails}, Hint: ${supabaseErrorHint}. Processed display message: ${displayMessage}`, e
       );
-      console.error('Full error object:', e); 
+      console.error('Full error object:', e);
       setError(displayMessage);
       toast({ title: 'Error Fetching Tasks', description: displayMessage, variant: 'destructive' });
     } finally {
@@ -132,7 +132,7 @@ export default function ApprovalsPage() {
     
     const names = assigneeIds.map(id => assigneeDetailsMap[id]?.name || 'Loading...').join(', ');
     
-    if (names.length > 30 && assigneeIds.length > 1) { 
+    if (names.length > 30 && assigneeIds.length > 1) {
         return `${assigneeIds.length} Assignees`;
     }
     return names || 'N/A';
@@ -156,7 +156,7 @@ export default function ApprovalsPage() {
  }
 
  const handleApprove = async (taskId: string, taskAssigneeIds?: string[] | null) => {
-    if (!supabase || !currentUser) { 
+    if (!supabase || !currentUser) {
       toast({ title: "Error", description: "Supabase client or user session not available.", variant: "destructive" });
       return;
     }
@@ -165,6 +165,8 @@ export default function ApprovalsPage() {
         toast({ title: "Error", description: "Task details not found for notification.", variant: "destructive" });
         return;
     }
+
+    console.log(`ApprovalsPage: Approving task "${taskToNotify.title}" (ID: ${taskId}). Assignees to notify:`, taskAssigneeIds);
 
     try {
       const { error: updateError } = await supabase
@@ -183,9 +185,11 @@ export default function ApprovalsPage() {
             type: 'task_approved' as const,
             link: `/tasks/${taskId}`,
             task_id: taskId,
-            triggered_by_user_id: currentUser.id, 
+            triggered_by_user_id: currentUser.id,
         }));
         
+        console.log("ApprovalsPage: Notifications to insert on approval:", notificationsToInsert);
+
         if (notificationsToInsert.length > 0) {
             const { error: notificationError } = await supabase
                 .from('notifications')
@@ -199,7 +203,7 @@ export default function ApprovalsPage() {
         }
       }
       toast({ title: "Task Approved", description: toastDescription});
-      fetchPendingApprovalTasks(); 
+      fetchPendingApprovalTasks();
     } catch (e: any) {
       const displayMessage = e.message || e.details || 'Could not approve task.';
       console.error(`Error approving task. Supabase Code: ${e.code}, Message: ${e.message}, Details: ${e.details}, Hint: ${e.hint}. Full error:`, e);
@@ -217,11 +221,12 @@ export default function ApprovalsPage() {
         toast({ title: "Error", description: "Task details not found for notification.", variant: "destructive" });
         return;
     }
+    console.log(`ApprovalsPage: Rejecting task "${taskToNotify.title}" (ID: ${taskId}). Assignees to notify:`, taskAssigneeIds);
 
     try {
       const { error: updateError } = await supabase
         .from('tasks')
-        .update({ status: 'In Progress' }) 
+        .update({ status: 'In Progress' })
         .eq('id', taskId);
 
       if (updateError) throw updateError;
@@ -235,9 +240,11 @@ export default function ApprovalsPage() {
             type: 'task_rejected' as const,
             link: `/tasks/${taskId}`,
             task_id: taskId,
-            triggered_by_user_id: currentUser.id, 
+            triggered_by_user_id: currentUser.id,
         }));
         
+        console.log("ApprovalsPage: Notifications to insert on rejection:", notificationsToInsert);
+
         if (notificationsToInsert.length > 0) {
             const { error: notificationError } = await supabase
                 .from('notifications')
@@ -251,7 +258,7 @@ export default function ApprovalsPage() {
         }
       }
       toast({ title: "Task Rejected", description: toastDescription, variant: "default"});
-      fetchPendingApprovalTasks(); 
+      fetchPendingApprovalTasks();
     } catch (e: any) {
       const displayMessage = e.message || e.details || 'Could not reject task.';
       console.error(`Error rejecting task. Supabase Code: ${e.code}, Message: ${e.message}, Details: ${e.details}, Hint: ${e.hint}. Full error:`, e);

@@ -4,7 +4,7 @@
 import { useEffect, useState, useCallback } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { useAuth } from '@/context/AuthContext';
-import type { Task, TaskComment, TaskLog, TaskStatus, TaskPriority, User } from '@/types';
+import type { Task, TaskComment, TaskLog, TaskStatus, TaskPriority, User, NotificationType } from '@/types';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
@@ -82,7 +82,7 @@ export default function TaskDetailPage() {
           setTask(null);
           setError('Task not found.');
         } else {
-          throw fetchError; 
+          throw fetchError;
         }
       } else if (data) {
         const fetchedTask: Task = {
@@ -91,7 +91,7 @@ export default function TaskDetailPage() {
           description: data.description,
           dueDate: data.due_date,
           createdAt: data.created_at,
-          assignee_ids: data.assignee_ids || [], 
+          assignee_ids: data.assignee_ids || [],
           projectId: data.project_id,
           projectName: data.project?.name || 'N/A',
           priority: data.priority as TaskPriority,
@@ -184,7 +184,11 @@ export default function TaskDetailPage() {
       if (task.assignee_ids && currentUser && supabase) {
         const recipients = new Set<string>();
         if (task.assignee_ids) task.assignee_ids.forEach(id => recipients.add(id));
-        if (task.user_id) recipients.add(task.user_id); // Task creator
+        // Optionally notify task creator if they are not an assignee and not the commenter
+        if (task.user_id && !recipients.has(task.user_id) && task.user_id !== currentUser.id) {
+            recipients.add(task.user_id);
+        }
+
 
         const notificationsToInsert = Array.from(recipients)
           .filter(id => id !== currentUser.id) // Don't notify the commenter
@@ -262,6 +266,7 @@ export default function TaskDetailPage() {
     
     const isCurrentUserAnAssigneeForThisAction = currentUser && task.assignee_ids && task.assignee_ids.includes(currentUser.id);
 
+    // Client-side permission checks
     if (newStatus === 'Completed') {
       if (!isCurrentUserAnAssigneeForThisAction) {
         console.log(`TaskDetailPage: handleUpdateStatus - "Completed" permission denied. Reason: User is not an assignee. CurrentUser ID: ${currentUser?.id}, Task Assignee IDs: ${task.assignee_ids?.join(', ')}`);
@@ -282,15 +287,15 @@ export default function TaskDetailPage() {
          setIsUpdatingStatus(false);
         return;
       }
-    } else if (newStatus === 'In Progress' && task.status === 'Completed') { 
+    } else if (newStatus === 'In Progress' && task.status === 'Completed') {
         if (!isAdmin) {
           console.log('TaskDetailPage: handleUpdateStatus - Admin reject permission denied. Reason: Not an admin.');
           toast({ title: "Invalid Action", description: "Only an admin can send a 'Completed' task back to 'In Progress'.", variant: "destructive"});
           setIsUpdatingStatus(false);
           return;
         }
-    } else if (newStatus === 'In Progress' && task.status === 'Pending') { 
-        if (!isCurrentUserAnAssigneeForThisAction && !isAdmin) { 
+    } else if (newStatus === 'In Progress' && task.status === 'Pending') {
+        if (!isCurrentUserAnAssigneeForThisAction && !isAdmin) {
             console.log(`TaskDetailPage: handleUpdateStatus - "In Progress" from "Pending" permission denied. Reason: Not assignee or admin. IsAssignee: ${isCurrentUserAnAssigneeForThisAction}, IsAdmin: ${isAdmin}`);
             toast({ title: "Permission Denied", description: "You cannot change the task to 'In Progress'.", variant: "destructive"});
             setIsUpdatingStatus(false);
@@ -311,10 +316,11 @@ export default function TaskDetailPage() {
         throw updateError;
       }
 
-      setTask(prevTask => prevTask ? { ...prevTask, status: newStatus } : null);
+      setTask(prevTask => prevTask ? { ...prevTask, status: newStatus } : null); // Update local state
       toast({ title: "Status Updated", description: `Task status changed to ${newStatus}.` });
 
-      if (newStatus === 'Completed' && !isAdmin && currentUser) {
+      // Notification Logic
+      if (newStatus === 'Completed' && !isAdmin && currentUser && supabase) { // User marks task as completed
         const { data: adminProfiles, error: adminFetchError } = await supabase
           .from('profiles')
           .select('id')
@@ -326,7 +332,7 @@ export default function TaskDetailPage() {
           const notificationsToInsert = adminProfiles.map(admin => ({
             user_id: admin.id,
             message: `${currentUser.name} marked task "${task.title}" as completed. It's ready for approval.`,
-            link: `/admin/approvals`,
+            link: `/admin/approvals`, // Link to general approvals page
             type: 'task_completed_for_approval' as const,
             task_id: task.id,
             triggered_by_user_id: currentUser.id,
@@ -344,22 +350,39 @@ export default function TaskDetailPage() {
             }
           }
         }
-      } else if (newStatus === 'In Progress' && task.status === 'Completed' && isAdmin && currentUser) {
+      } else if (newStatus === 'Approved' && isAdmin && currentUser && task.assignee_ids && task.assignee_ids.length > 0 && supabase) { // Admin approves task
+        console.log(`TaskDetailPage: Admin approved task "${task.title}". Assignees:`, task.assignee_ids);
+        const notificationsToInsert = task.assignee_ids.map(assigneeId => ({
+            user_id: assigneeId,
+            message: `Your task "${task.title}" has been approved by ${currentUser.name}.`,
+            link: `/tasks/${task.id}`,
+            type: 'task_approved' as const,
+            task_id: task.id,
+            triggered_by_user_id: currentUser.id,
+        }));
+        console.log("TaskDetailPage: Notifications to insert for approval (from detail page):", notificationsToInsert);
+        if (notificationsToInsert.length > 0) {
+            const { error: notificationError } = await supabase.from('notifications').insert(notificationsToInsert);
+            if (notificationError) {
+                console.error("TaskDetailPage: Error creating 'task_approved' notifications (admin approve from detail):", notificationError);
+            }
+        }
+      } else if (newStatus === 'In Progress' && task.status === 'Completed' && isAdmin && currentUser && task.assignee_ids && task.assignee_ids.length > 0 && supabase) {
         // Admin rejected a task (moved from Completed to In Progress)
-        if (task.assignee_ids && task.assignee_ids.length > 0) {
-            const notificationsToInsert = task.assignee_ids.map(assigneeId => ({
-                user_id: assigneeId,
-                message: `Your task "${task.title}" was reviewed by ${currentUser.name} and moved back to 'In Progress'.`,
-                link: `/tasks/${task.id}`,
-                type: 'task_rejected' as const,
-                task_id: task.id,
-                triggered_by_user_id: currentUser.id,
-            }));
-            if (notificationsToInsert.length > 0) {
-                const { error: notificationError } = await supabase.from('notifications').insert(notificationsToInsert);
-                if (notificationError) {
-                    console.error("TaskDetailPage: Error creating 'task_rejected' notifications (admin reject from detail):", notificationError);
-                }
+        console.log(`TaskDetailPage: Admin rejected task "${task.title}". Assignees:`, task.assignee_ids);
+        const notificationsToInsert = task.assignee_ids.map(assigneeId => ({
+            user_id: assigneeId,
+            message: `Your task "${task.title}" was reviewed by ${currentUser.name} and moved back to 'In Progress'.`,
+            link: `/tasks/${task.id}`,
+            type: 'task_rejected' as const,
+            task_id: task.id,
+            triggered_by_user_id: currentUser.id,
+        }));
+        console.log("TaskDetailPage: Notifications to insert for rejection (from detail page):", notificationsToInsert);
+        if (notificationsToInsert.length > 0) {
+            const { error: notificationError } = await supabase.from('notifications').insert(notificationsToInsert);
+            if (notificationError) {
+                console.error("TaskDetailPage: Error creating 'task_rejected' notifications (admin reject from detail):", notificationError);
             }
         }
       }
@@ -382,8 +405,8 @@ export default function TaskDetailPage() {
     switch (status) {
       case 'Pending': return 'secondary';
       case 'In Progress': return 'default';
-      case 'Completed': return 'outline'; 
-      case 'Approved': return 'default'; 
+      case 'Completed': return 'outline';
+      case 'Approved': return 'default';
       default: return 'secondary';
     }
   };
@@ -391,11 +414,24 @@ export default function TaskDetailPage() {
   const getPriorityVariant = (priority?: TaskPriority): "default" | "secondary" | "destructive" | "outline" => {
     switch (priority) {
       case 'High': return 'destructive';
-      case 'Medium': return 'default'; 
+      case 'Medium': return 'default';
       case 'Low': return 'secondary';
       default: return 'secondary';
     }
   };
+
+  // Diagnostic log added here for client-side permission evaluation
+  const isCurrentUserAnAssignee = !!(currentUser && task && task.assignee_ids && task.assignee_ids.includes(currentUser.id));
+  const canMarkCompleted = isCurrentUserAnAssignee && task && (task.status === 'In Progress' || task.status === 'Pending');
+  const canAdminApprove = isAdmin && task && task.status === 'Completed';
+  const canAdminReject = isAdmin && task && task.status === 'Completed';
+  const canLogTime = isCurrentUserAnAssignee && task && (task.status === 'In Progress' || task.status === 'Pending');
+  const canStartTask = (isCurrentUserAnAssignee || isAdmin) && task && task.status === 'Pending';
+
+  if (!isLoading && task) { // Moved this log to only run when task data is available
+    console.log('TaskDetailPage Render:', { taskId: task?.id, currentUserRole: currentUser?.role, currentUserId: currentUser?.id, taskAssigneeIds: task?.assignee_ids, taskStatus: task?.status, isCurrentUserAnAssignee, canMarkCompleted, isAdmin, canAdminApprove, canAdminReject, canLogTime, canStartTask });
+  }
+
 
   if (isLoading) {
     return (
@@ -405,7 +441,7 @@ export default function TaskDetailPage() {
     );
   }
 
-  if (error && !task) { 
+  if (error && !task) {
     return (
       <div className="flex flex-col items-center justify-center h-64 text-destructive">
         <AlertTriangle className="w-12 h-12 mb-4" />
@@ -416,7 +452,7 @@ export default function TaskDetailPage() {
     );
   }
   
-  if (!task) { 
+  if (!task) {
      return (
       <div className="flex flex-col items-center justify-center h-64 text-muted-foreground">
         <XCircle className="w-12 h-12 mb-4" />
@@ -427,14 +463,6 @@ export default function TaskDetailPage() {
     );
   }
 
-  const isCurrentUserAnAssignee = currentUser && task.assignee_ids && task.assignee_ids.includes(currentUser.id);
-  const canMarkCompleted = isCurrentUserAnAssignee && (task.status === 'In Progress' || task.status === 'Pending');
-  const canAdminApprove = isAdmin && task.status === 'Completed';
-  const canAdminReject = isAdmin && task.status === 'Completed';
-  const canLogTime = isCurrentUserAnAssignee && (task.status === 'In Progress' || task.status === 'Pending');
-  const canStartTask = (isCurrentUserAnAssignee || isAdmin) && task.status === 'Pending';
-
-  console.log('TaskDetailPage Render:', { taskId: task?.id, currentUserRole: currentUser?.role, currentUserId: currentUser?.id, taskAssigneeIds: task?.assignee_ids, taskStatus: task?.status, isCurrentUserAnAssignee, canMarkCompleted, isAdmin, canAdminApprove, canAdminReject, canLogTime, canStartTask });
 
   return (
     <div className="max-w-4xl mx-auto space-y-6">
@@ -526,9 +554,9 @@ export default function TaskDetailPage() {
                 <>
                   <Separator className="my-6" />
                   <div className="space-y-2">
-                    <Textarea 
-                      placeholder="Add a comment..." 
-                      value={newComment} 
+                    <Textarea
+                      placeholder="Add a comment..."
+                      value={newComment}
                       onChange={(e) => setNewComment(e.target.value)}
                       rows={3}
                       disabled={isSubmittingComment}
@@ -606,3 +634,4 @@ export default function TaskDetailPage() {
     </div>
   );
 }
+
