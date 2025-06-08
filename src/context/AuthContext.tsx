@@ -18,6 +18,16 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
+const generateInitials = (name: string | undefined | null): string => {
+  if (!name) return 'U';
+  const nameParts = name.split(' ');
+  let initials = (nameParts[0]?.[0] || '');
+  if (nameParts.length > 1 && nameParts[1]?.[0]) {
+    initials += nameParts[1][0];
+  }
+  return initials.toUpperCase() || 'U';
+};
+
 const mapSupabaseUserToAppUser = (supabaseUser: SupabaseUser | null, profile: any | null): User | null => {
   if (!supabaseUser) return null;
 
@@ -25,16 +35,25 @@ const mapSupabaseUserToAppUser = (supabaseUser: SupabaseUser | null, profile: an
   if (profile && (profile.role === 'Admin' || profile.role === 'User')) {
     role = profile.role;
   } else if (profile && profile.role) {
-    console.warn(`Unknown role "${profile.role}" for user ${supabaseUser.id}. Defaulting to 'User'.`);
+    // Original line with template literal that caused parsing error:
+    // console.warn(`Unknown role "${profile.role}" for user ${supabaseUser.id}. Defaulting to 'User'.`);
+    // Rewritten line using string concatenation:
+    console.warn("Unknown role \"" + profile.role + "\" for user " + supabaseUser.id + ". Defaulting to 'User'.");
   }
+
+  const name = profile?.full_name || supabaseUser.email?.split('@')[0] || 'User';
+  const initials = generateInitials(name);
+  // If profile.avatar_url is null, undefined, or an empty string, use placeholder
+  const avatarUrl = profile?.avatar_url && profile.avatar_url.trim() !== '' ? profile.avatar_url : `https://placehold.co/100x100.png?text=${initials}`;
+
 
   return {
     id: supabaseUser.id,
-    name: profile?.full_name || supabaseUser.email?.split('@')[0] || 'User',
-    email: profile?.email || supabaseUser.email || '',
+    name: name,
+    email: profile?.email || supabaseUser.email || '', // Ensure email is present
     role: role,
-    avatar: profile?.avatar_url || `https://placehold.co/100x100.png?u=${supabaseUser.id}`,
-    position: profile?.position || null, // Include position
+    avatar: avatarUrl,
+    position: profile?.position || null,
   };
 };
 
@@ -55,11 +74,9 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   const fetchProfileAndSetUser = useCallback(async (sbUser: SupabaseUser, operationTag: string): Promise<User | null> => {
     console.log(`AuthContext: fetchProfileAndSetUser called for ${sbUser.id} from ${operationTag}`);
     if (currentUserState?.id === sbUser.id && currentUserState?.email === sbUser.email && currentUserState.name !== 'User' && sbUser.email) {
-      // Check if essential profile data likely already exists to avoid unnecessary fetches.
-      // This check needs to be robust; for example, if name is still default, profile might not be fully loaded.
       console.log(`AuthContext: Profile for ${sbUser.id} likely already loaded or being loaded, skipping redundant fetch from ${operationTag}. Current user name: ${currentUserState.name}`);
-      if (isMountedRef.current) { // Ensure loading is set to false if we skip
-         // setLoadingStateInternal(false); // This might be too aggressive, only set if truly done
+      if (isMountedRef.current) { 
+         // setLoadingStateInternal(false); 
       }
       return currentUserState;
     }
@@ -75,17 +92,15 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     try {
       const { data: profile, error: profileError } = await supabase
         .from('profiles')
-        .select('id, full_name, email, role, avatar_url, position') // Select position
+        .select('id, full_name, email, role, avatar_url, position')
         .eq('id', sbUser.id)
         .single();
       console.log(`AuthContext: AFTER Supabase call for profile ${sbUser.id} from ${operationTag}. Profile:`, profile, "Error:", profileError);
 
       if (profileError) {
         console.error(`AuthContext: Error fetching profile for ${sbUser.id} from ${operationTag}: ${profileError.message}. Code: ${profileError.code}`);
-        if (profileError.code === 'PGRST116' && operationTag !== 'initialSession') { // PGRST116: 0 rows
+        if (profileError.code === 'PGRST116' && operationTag !== 'initialSession') { 
           console.warn(`AuthContext: Profile not found for ${sbUser.id}, possibly a new user. Trigger should create it.`);
-           // For a very new user, the trigger might not have finished. We'll rely on onAuthStateChange or next fetch.
-           // Don't nullify currentUserState here if it was already set by a previous successful SIGNED_IN.
            const mappedWithoutProfile = mapSupabaseUserToAppUser(sbUser, null);
            if(isMountedRef.current) setCurrentUserStateInternal(mappedWithoutProfile);
            return mappedWithoutProfile;
@@ -104,7 +119,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       if (isMountedRef.current) setCurrentUserStateInternal(mapped);
       return mapped;
     }
-  }, [currentUserState]); // Added supabase as dependency, as fetchProfileAndSetUser uses it.
+  }, [currentUserState]); 
 
   useEffect(() => {
     isMountedRef.current = true;
@@ -172,29 +187,18 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
             await fetchProfileAndSetUser(newSession.user, `onAuthChange-${event}`);
             if (isMountedRef.current) setLoadingStateInternal(false);
           } else if (event === 'SIGNED_IN' && !newSession?.user) {
-             // This can happen if token is invalid or user removed during an active session attempt
              console.warn(`AuthContext: SIGNED_IN event but no user in session. Resetting currentUser.`);
              if(isMountedRef.current) setCurrentUserStateInternal(null);
           }
         } else if (event === 'SIGNED_OUT') {
           if (isMountedRef.current) {
             setCurrentUserStateInternal(null);
-            // setSessionStateInternal(null); // Already handled by the line above
           }
         } else if (event === 'TOKEN_REFRESHED') {
-          console.log('AuthContext: Token refreshed. Session updated. User profile fetch not typically needed unless other user details changed.');
-          // If user data might change with token refresh (unlikely for profile details usually), uncomment:
-          // if (newSession?.user) {
-          //   setLoadingStateInternal(true);
-          //   await fetchProfileAndSetUser(newSession.user, "onAuthChange-TOKEN_REFRESHED");
-          //   setLoadingStateInternal(false);
-          // }
+          console.log('AuthContext: Token refreshed. Session updated.');
         }
-        // Ensure loading is false after handling, unless it's an unhandled case that might need it true
-        if (isMountedRef.current && (event !== 'SIGNED_IN' && event !== 'USER_UPDATED' && event !== 'INITIAL_SESSION')) {
-            // setLoadingStateInternal(false); // Potentially problematic if another async op is pending
-        }
-         if (isMountedRef.current && !isInitializedState) { // Ensure initialized is set true after first event if not by getSession
+        
+         if (isMountedRef.current && !isInitializedState) { 
             setIsInitializedStateInternal(true);
          }
       }
@@ -206,7 +210,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       console.log("AuthContext: Component unmounted. Unsubscribing onAuthStateChange listener. isMountedRef set to false.");
       authListener?.subscription.unsubscribe();
     };
-  }, [supabase, fetchProfileAndSetUser, setCurrentUser, isInitializedState]); // Added supabase, fetchProfileAndSetUser, setCurrentUser
+  }, [fetchProfileAndSetUser, setCurrentUser, isInitializedState]); 
 
   const logout = async () => {
     if (!supabase) {
@@ -214,7 +218,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       if (isMountedRef.current) {
         setCurrentUserStateInternal(null);
         setSessionStateInternal(null);
-        setLoadingStateInternal(false); // Ensure loading is false on mock logout
+        setLoadingStateInternal(false); 
       }
       return;
     }
@@ -226,15 +230,9 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       if (error) {
         console.error("AuthContext: Error signing out:", error);
       }
-      // onAuthStateChange will handle setting currentUser and session to null
       console.log("AuthContext: Sign out successful (or error handled by onAuthStateChange).");
     } catch (e) {
       console.error("AuthContext: Exception during signout:", e);
-    } finally {
-       if (isMountedRef.current) {
-        // State resets are handled by onAuthStateChange, but ensure loading is false
-        // setLoadingStateInternal(false); // This might be set by onAuthStateChange too.
-       }
     }
   };
   
@@ -262,3 +260,5 @@ export const useAuth = () => {
   }
   return context;
 };
+
+    
