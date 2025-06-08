@@ -4,14 +4,14 @@
 import { useEffect, useState, useCallback } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { useAuth } from '@/context/AuthContext';
-import type { Note, User } from '@/types';
+import type { Note, User, NoteCategory } from '@/types';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
 import { format, parseISO } from 'date-fns';
-import { StickyNote, CalendarDays, Users, UserCircle, Loader2, AlertTriangle, ArrowLeft } from 'lucide-react';
+import { StickyNote, CalendarDays, Users, UserCircle, Loader2, AlertTriangle, ArrowLeft, Tag } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { supabase } from '@/lib/supabaseClient';
 
@@ -44,7 +44,7 @@ export default function AdminNoteDetailPage() {
     try {
       const { data, error: fetchError } = await supabase
         .from('notes')
-        .select('id, title, content, admin_id, recipient_user_ids, created_at, updated_at')
+        .select('id, title, content, admin_id, recipient_user_ids, created_at, updated_at, category')
         .eq('id', noteId)
         .single();
 
@@ -76,6 +76,7 @@ export default function AdminNoteDetailPage() {
           recipient_names: (data.recipient_user_ids || []).map(id => newProfilesMap[id]?.name || 'Unknown User'),
           created_at: data.created_at,
           updated_at: data.updated_at,
+          category: data.category as NoteCategory || 'General',
         };
         setNote(fetchedNote);
       } else {
@@ -135,6 +136,17 @@ export default function AdminNoteDetailPage() {
 
   const adminProfile = profilesMap[note.admin_id];
 
+  const getCategoryBadgeVariant = (category?: NoteCategory | null): "default" | "secondary" | "destructive" | "outline" => {
+    switch (category) {
+      case 'Important': return 'destructive';
+      case 'Credentials': return 'default';
+      case 'Improvement': return 'secondary';
+      case 'Action Required': return 'destructive';
+      case 'General': return 'outline';
+      default: return 'outline';
+    }
+  };
+
   return (
     <div className="max-w-3xl mx-auto space-y-6">
        <Button variant="outline" onClick={() => router.push('/admin/notes')} className="mb-4">
@@ -143,11 +155,16 @@ export default function AdminNoteDetailPage() {
       <Card>
         <CardHeader>
           <div className="flex flex-col sm:flex-row justify-between items-start">
-            <CardTitle className="text-2xl md:text-3xl mb-2 sm:mb-0 flex items-center">
-                <StickyNote className="w-7 h-7 mr-2 text-primary flex-shrink-0" />
-                {note.title}
-            </CardTitle>
-            <Badge variant="outline" className="mt-1 sm:mt-0 text-xs">
+            <div className="flex-1">
+                <CardTitle className="text-2xl md:text-3xl mb-1 sm:mb-0 flex items-center">
+                    <StickyNote className="w-7 h-7 mr-2 text-primary flex-shrink-0" />
+                    {note.title}
+                </CardTitle>
+                <Badge variant={getCategoryBadgeVariant(note.category)} className="capitalize mt-1.5">
+                    <Tag className="mr-1.5 h-3 w-3" /> {note.category || 'General'}
+                </Badge>
+            </div>
+            <Badge variant="outline" className="mt-2 sm:mt-1 text-xs self-start sm:self-auto">
                 Last updated: {note.updated_at ? format(parseISO(note.updated_at), 'MMM d, yyyy HH:mm') : 'N/A'}
             </Badge>
           </div>

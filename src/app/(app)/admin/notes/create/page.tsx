@@ -16,14 +16,16 @@ import {
 } from '@/components/ui/form';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { useAuth } from '@/context/AuthContext';
 import { useRouter } from 'next/navigation';
-import type { User, NotificationType } from '@/types';
+import type { User, NotificationType, NoteCategory } from '@/types';
+import { noteCategories } from '@/types';
 import { useToast } from '@/hooks/use-toast';
 import { supabase } from '@/lib/supabaseClient';
 import { useEffect, useState } from 'react';
-import { Loader2, AlertTriangle, Users, ChevronDown, Send } from 'lucide-react';
+import { Loader2, AlertTriangle, Users, ChevronDown, Send, Tag } from 'lucide-react';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -38,6 +40,7 @@ const noteFormSchema = z.object({
   title: z.string().min(3, { message: 'Title must be at least 3 characters.' }).max(150, { message: 'Title too long.'}),
   content: z.string().min(10, { message: 'Note content must be at least 10 characters.' }),
   recipient_user_ids: z.array(z.string()).min(1, { message: 'At least one recipient must be selected.' }),
+  category: z.enum(noteCategories, { required_error: 'Note category is required.' }),
 });
 
 type NoteFormValues = z.infer<typeof noteFormSchema>;
@@ -58,6 +61,7 @@ export default function CreateNotePage() {
       title: '',
       content: '',
       recipient_user_ids: [],
+      category: 'General',
     },
   });
 
@@ -108,6 +112,7 @@ export default function CreateNotePage() {
         content: values.content,
         admin_id: currentUser.id,
         recipient_user_ids: values.recipient_user_ids,
+        category: values.category,
       };
 
       const { data: createdNote, error: noteInsertError } = await supabase
@@ -149,7 +154,10 @@ export default function CreateNotePage() {
                 let specificErrorMsg = "Failed to send notifications to recipients.";
                 if ((notificationError as any)?.code === '42501') {
                     specificErrorMsg = "Failed to send notifications due to database permissions (RLS). Please check 'notifications' table policies for admin inserts of type 'new_note_received'.";
-                } else if ((notificationError as any)?.message) {
+                } else if ((notificationError as any)?.message?.includes("column \"note_id\" of relation \"notifications\" does not exist")) {
+                    specificErrorMsg = "Failed to send notifications: The 'note_id' column is missing in the 'notifications' table. Please run the database migration to add it.";
+                }
+                 else if ((notificationError as any)?.message) {
                     specificErrorMsg += ` Error: ${(notificationError as any).message}`;
                 }
                 
@@ -212,6 +220,31 @@ export default function CreateNotePage() {
                   <FormItem>
                     <FormLabel>Note Title</FormLabel>
                     <FormControl><Input placeholder="Enter note title" {...field} /></FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+               <FormField
+                control={form.control}
+                name="category"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel className="flex items-center">
+                        <Tag className="mr-2 h-4 w-4 text-muted-foreground" />
+                        Category
+                    </FormLabel>
+                    <Select onValueChange={field.onChange} defaultValue={field.value}>
+                      <FormControl>
+                        <SelectTrigger>
+                          <SelectValue placeholder="Select note category" />
+                        </SelectTrigger>
+                      </FormControl>
+                      <SelectContent>
+                        {noteCategories.map(category => (
+                          <SelectItem key={category} value={category}>{category}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
                     <FormMessage />
                   </FormItem>
                 )}

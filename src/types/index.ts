@@ -1,4 +1,5 @@
 
+
 export type UserRole = 'Admin' | 'User';
 
 export interface User {
@@ -75,7 +76,7 @@ export type NotificationType =
   | 'task_approved'
   | 'task_completed_for_approval'
   | 'task_rejected'
-  | 'new_note_received' // Added for new notes
+  | 'new_note_received'
   | 'generic';
 
 export interface NotificationItem {
@@ -93,6 +94,10 @@ export interface NotificationItem {
   triggered_by_profile?: { full_name?: string | null } | null;
 }
 
+export type NoteCategory = 'General' | 'Important' | 'Credentials' | 'Improvement' | 'Action Required';
+export const noteCategories: NoteCategory[] = ['General', 'Important', 'Credentials', 'Improvement', 'Action Required'];
+
+
 export interface Note {
   id: string; // uuid
   title: string;
@@ -103,4 +108,6 @@ export interface Note {
   recipient_names?: string[]; // denormalized for display
   created_at: string; // ISO date string
   updated_at: string; // ISO date string
+  category?: NoteCategory | null; // New category field
 }
+

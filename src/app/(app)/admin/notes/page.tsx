@@ -4,10 +4,10 @@
 import { useState, useEffect, useCallback } from 'react';
 import Link from 'next/link';
 import { useAuth } from '@/context/AuthContext';
-import type { Note, User } from '@/types';
+import type { Note, User, NoteCategory } from '@/types';
 import { Button } from '@/components/ui/button';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { PlusCircle, Eye, Trash2, Loader2, AlertTriangle, StickyNote } from 'lucide-react';
+import { PlusCircle, Eye, Trash2, Loader2, AlertTriangle, StickyNote, Tag } from 'lucide-react';
 import { format, parseISO } from 'date-fns';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
@@ -42,7 +42,7 @@ export default function ManageNotesPage() {
     try {
       const { data: notesData, error: notesError } = await supabase
         .from('notes')
-        .select('id, title, content, admin_id, recipient_user_ids, created_at, updated_at')
+        .select('id, title, content, admin_id, recipient_user_ids, created_at, updated_at, category')
         .order('created_at', { ascending: false });
 
       if (notesError) throw notesError;
@@ -80,6 +80,7 @@ export default function ManageNotesPage() {
         recipient_names: note.recipient_user_ids.map(id => newProfilesMap[id]?.name || 'Unknown User'),
         created_at: note.created_at,
         updated_at: note.updated_at,
+        category: note.category as NoteCategory || 'General',
       }));
       setNotes(mappedNotes);
 
@@ -104,6 +105,22 @@ export default function ManageNotesPage() {
     if (confirm(`Are you sure you want to delete the note "${noteTitle}"? This action cannot be undone.`)) {
       setIsLoading(true);
       try {
+        // Also delete related notifications for this note_id
+        const { error: notificationsDeleteError } = await supabase
+          .from('notifications')
+          .delete()
+          .eq('note_id', noteId);
+
+        if (notificationsDeleteError) {
+          console.warn('Partial delete: Error deleting notifications for note', noteId, notificationsDeleteError);
+           toast({
+            title: "Warning: Notifications Deletion Issue",
+            description: `Could not delete all notifications for note "${noteTitle}". Note deletion will proceed. Error: ${notificationsDeleteError.message}`,
+            variant: "default",
+            duration: 7000,
+          });
+        }
+        
         const { error: deleteError } = await supabase
           .from('notes')
           .delete()
@@ -133,7 +150,6 @@ export default function ManageNotesPage() {
   const displayRecipients = (recipientIds: string[], recipientNames?: string[]) => {
     if (!recipientIds || recipientIds.length === 0) return <Badge variant="outline">No Recipients</Badge>;
     
-    // Use provided names if available, otherwise map from profilesMap
     const namesToDisplay = recipientNames && recipientNames.length === recipientIds.length 
       ? recipientNames 
       : recipientIds.map(id => profilesMap[id]?.name || 'Unknown');
@@ -145,6 +161,18 @@ export default function ManageNotesPage() {
       <Badge key={recipientIds[index]} variant="secondary" className="mr-1 mb-1">{name}</Badge>
     ));
   };
+
+  const getCategoryBadgeVariant = (category?: NoteCategory | null): "default" | "secondary" | "destructive" | "outline" => {
+    switch (category) {
+      case 'Important': return 'destructive';
+      case 'Credentials': return 'default';
+      case 'Improvement': return 'secondary';
+      case 'Action Required': return 'destructive';
+      case 'General': return 'outline';
+      default: return 'outline';
+    }
+  };
+
 
   return (
     <div className="space-y-6">
@@ -188,6 +216,7 @@ export default function ManageNotesPage() {
               <TableHeader>
                 <TableRow>
                   <TableHead>Title</TableHead>
+                  <TableHead>Category</TableHead>
                   <TableHead>Sent By</TableHead>
                   <TableHead>Recipients</TableHead>
                   <TableHead>Created At</TableHead>
@@ -199,6 +228,11 @@ export default function ManageNotesPage() {
                   <TableRow key={note.id}>
                     <TableCell className="font-medium max-w-xs truncate">
                       <Link href={`/admin/notes/${note.id}`} className="hover:underline text-primary">{note.title}</Link>
+                    </TableCell>
+                     <TableCell>
+                      <Badge variant={getCategoryBadgeVariant(note.category)} className="capitalize">
+                        <Tag className="mr-1 h-3 w-3" /> {note.category || 'General'}
+                      </Badge>
                     </TableCell>
                     <TableCell>
                       <div className="flex items-center gap-2">

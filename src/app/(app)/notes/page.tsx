@@ -3,11 +3,11 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { useAuth } from '@/context/AuthContext';
-import type { Note, User } from '@/types';
+import type { Note, User, NoteCategory } from '@/types';
 import { format, parseISO } from 'date-fns';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from '@/components/ui/card';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
-import { Loader2, AlertTriangle, Inbox, UserCircle } from 'lucide-react';
+import { Loader2, AlertTriangle, Inbox, UserCircle, Tag } from 'lucide-react';
 import { supabase } from '@/lib/supabaseClient';
 import { useToast } from '@/hooks/use-toast';
 import { Badge } from '@/components/ui/badge';
@@ -36,12 +36,10 @@ export default function MyNotesPage() {
     setError(null);
 
     try {
-      // RLS: "Users can view notes sent to them"
-      // recipient_user_ids @> ARRAY[auth.uid()]
       const { data: notesData, error: notesError } = await supabase
         .from('notes')
-        .select('id, title, content, admin_id, created_at') // recipient_user_ids is used in RLS, not needed here explicitly
-        .contains('recipient_user_ids', [currentUser.id]) // Explicit filter for safety, though RLS should handle
+        .select('id, title, content, admin_id, created_at, category')
+        .contains('recipient_user_ids', [currentUser.id])
         .order('created_at', { ascending: false });
 
       if (notesError) throw notesError;
@@ -72,9 +70,10 @@ export default function MyNotesPage() {
         content: note.content,
         admin_id: note.admin_id,
         admin_name: fetchedAdminProfiles[note.admin_id]?.name || 'Admin',
-        recipient_user_ids: [currentUser.id], // For typing, not strictly needed for display here
+        recipient_user_ids: [currentUser.id],
         created_at: note.created_at,
-        updated_at: note.created_at, // Assuming updated_at isn't shown on this simple list
+        updated_at: note.created_at,
+        category: note.category as NoteCategory || 'General',
       }));
       setNotes(mappedNotes);
 
@@ -90,6 +89,17 @@ export default function MyNotesPage() {
   useEffect(() => {
     fetchMyNotes();
   }, [fetchMyNotes]);
+
+  const getCategoryBadgeVariant = (category?: NoteCategory | null): "default" | "secondary" | "destructive" | "outline" => {
+    switch (category) {
+      case 'Important': return 'destructive';
+      case 'Credentials': return 'default';
+      case 'Improvement': return 'secondary';
+      case 'Action Required': return 'destructive';
+      case 'General': return 'outline';
+      default: return 'outline';
+    }
+  };
 
   if (!currentUser && !isLoading) {
     return (
@@ -132,12 +142,17 @@ export default function MyNotesPage() {
                 <Card key={note.id} id={`note-${note.id}`} className="overflow-hidden">
                   <CardHeader className="pb-3">
                     <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center">
-                        <CardTitle className="text-xl mb-1 sm:mb-0">{note.title}</CardTitle>
-                        <Badge variant="outline" className="text-xs">
+                        <div className="flex-1">
+                             <CardTitle className="text-xl mb-1 sm:mb-0">{note.title}</CardTitle>
+                             <Badge variant={getCategoryBadgeVariant(note.category)} className="capitalize mt-1 text-xs">
+                                <Tag className="mr-1.5 h-3 w-3" /> {note.category || 'General'}
+                             </Badge>
+                        </div>
+                        <Badge variant="outline" className="text-xs mt-2 sm:mt-0 self-start sm:self-auto">
                             Received: {note.created_at ? format(parseISO(note.created_at), 'MMM d, yyyy HH:mm') : 'N/A'}
                         </Badge>
                     </div>
-                     <CardDescription className="flex items-center text-xs pt-1">
+                     <CardDescription className="flex items-center text-xs pt-1.5">
                         <UserCircle className="h-3 w-3 mr-1" /> Sent by: {note.admin_name || 'Admin'}
                       </CardDescription>
                   </CardHeader>
@@ -146,7 +161,6 @@ export default function MyNotesPage() {
                       {note.content}
                     </div>
                   </CardContent>
-                  {/* Footer can be used for actions like 'Mark as Read' if implemented later */}
                 </Card>
               ))}
             </div>
