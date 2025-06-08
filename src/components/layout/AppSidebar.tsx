@@ -5,7 +5,7 @@ import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { useAuth } from '@/context/AuthContext';
 import { Sidebar, SidebarMenu, SidebarMenuItem, SidebarMenuButton, SidebarHeader, SidebarFooter, SidebarContent, SidebarSeparator } from '@/components/ui/sidebar';
-import { LayoutDashboard, ListChecks, Users as UsersIconLucide, LogOut, FolderKanban, CheckCircle2, Users, StickyNote, BookUser } from 'lucide-react';
+import { LayoutDashboard, ListChecks, Users as UsersIconLucide, LogOut, FolderKanban, CheckCircle2, StickyNote, BookUser } from 'lucide-react';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import type { NavItem } from '@/types';
 
@@ -13,7 +13,7 @@ const navItems: NavItem[] = [
   { href: '/dashboard', label: 'Dashboard', icon: LayoutDashboard, teamViewable: true },
   { href: '/tasks', label: 'Tasks', icon: ListChecks, teamViewable: true },
   { href: '/notes', label: 'My Notes', icon: BookUser, teamViewable: true, userSpecific: true, activePathPrefix: '/notes' },
-  { href: '/members', label: 'Team Members', icon: Users, teamViewable: true, activePathPrefix: '/members' },
+  // { href: '/members', label: 'Team Members', icon: UsersIconLucide, teamViewable: true, activePathPrefix: '/members' }, // Removed this line
   { href: '/admin/projects', label: 'Projects', icon: FolderKanban, adminOnly: true, activePathPrefix: '/admin/projects' },
   { href: '/admin/users', label: 'User Management', icon: UsersIconLucide, adminOnly: true, activePathPrefix: '/admin/users' },
   { href: '/admin/approvals', label: 'Task Approvals', icon: CheckCircle2, adminOnly: true, activePathPrefix: '/admin/approvals' },
@@ -116,3 +116,4 @@ export function AppSidebar() {
     </Sidebar>
   );
 }
+

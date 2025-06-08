@@ -8,7 +8,7 @@ import { Button } from '@/components/ui/button';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
-import { UserPlus, Edit3, Trash2, ShieldCheck, UserCircle, Loader2, AlertTriangle, Award } from 'lucide-react';
+import { UserPlus, Edit3, Trash2, ShieldCheck, UserCircle, Loader2, AlertTriangle, Award, Users as UsersIcon } from 'lucide-react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { useRouter } from 'next/navigation';
 import { supabase } from '@/lib/supabaseClient';
@@ -135,9 +135,16 @@ export default function UserManagementPage() {
           <h1 className="text-3xl font-bold tracking-tight">User Management</h1>
           <p className="text-muted-foreground">Manage all user profiles in the system.</p>
         </div>
-        <Button onClick={handleAddUser} disabled={isLoading || !supabase} className="w-full sm:w-auto">
-          <UserPlus className="mr-2 h-4 w-4" /> Add User
-        </Button>
+        <div className="flex flex-col sm:flex-row gap-2 w-full sm:w-auto">
+          <Link href="/members" passHref>
+            <Button variant="outline" disabled={isLoading || !supabase} className="w-full sm:w-auto">
+              <UsersIcon className="mr-2 h-4 w-4" /> View Team Members
+            </Button>
+          </Link>
+          <Button onClick={handleAddUser} disabled={isLoading || !supabase} className="w-full sm:w-auto">
+            <UserPlus className="mr-2 h-4 w-4" /> Add User
+          </Button>
+        </div>
       </div>
 
       <Card>
@@ -227,3 +234,4 @@ export default function UserManagementPage() {
     </div>
   );
 }
+
