@@ -47,7 +47,14 @@ export default function ProfilePage() {
 
   const handleAvatarUpload = async () => {
     if (!selectedFile || !currentUser || !supabase) {
-      setUploadError('No file selected or user not available.');
+      setUploadError('No file selected, user not available, or Supabase client not ready.');
+      toast({ title: 'Upload Error', description: 'Cannot upload: No file selected, user not available, or Supabase client not ready.', variant: 'destructive'});
+      return;
+    }
+
+    if (!currentUser.id) {
+      setUploadError('Current user ID is missing. Cannot proceed with upload.');
+      toast({ title: 'Upload Error', description: 'Your user ID is missing. Please re-login and try again.', variant: 'destructive'});
       return;
     }
 
@@ -56,14 +63,16 @@ export default function ProfilePage() {
 
     try {
       const fileExtension = selectedFile.name.split('.').pop();
-      const fileName = `avatar.${fileExtension}`;
+      const fileName = `avatar.${fileExtension}`; // Consistent naming for easier overwriting/cache busting
       const filePath = `public/${currentUser.id}/${fileName}`;
+
+      console.log(`Attempting to upload avatar for user ID: ${currentUser.id} to path: ${filePath}`); // Log user ID and path
 
       const { data: uploadData, error: uploadSupabaseError } = await supabase.storage
         .from('avatars')
         .upload(filePath, selectedFile, {
-          cacheControl: '3600',
-          upsert: true,
+          cacheControl: '3600', // Cache for 1 hour
+          upsert: true, // Overwrite if file already exists
         });
 
       if (uploadSupabaseError) {
@@ -81,33 +90,39 @@ export default function ProfilePage() {
       if (!uploadData || !uploadData.path) {
           throw new Error('Avatar upload successful but path not returned from storage.');
       }
-
+      
+      // Construct public URL. Adding a timestamp query parameter for cache busting.
       const { data: urlData } = supabase.storage
         .from('avatars')
-        .getPublicUrl(uploadData.path);
-
+        .getPublicUrl(uploadData.path, {
+           // transform: { width: 200, height: 200, resize: 'cover' } // Optional: server-side resize
+        });
+        
       if (!urlData || !urlData.publicUrl) {
         throw new Error('Could not retrieve public URL for avatar.');
       }
       
-      const publicAvatarUrl = urlData.publicUrl;
+      const publicAvatarUrlWithCacheBust = `${urlData.publicUrl}?t=${new Date().getTime()}`;
 
       const { error: profileUpdateError } = await supabase
         .from('profiles')
-        .update({ avatar_url: publicAvatarUrl })
+        .update({ avatar_url: publicAvatarUrlWithCacheBust }) // Store URL with cache buster
         .eq('id', currentUser.id);
 
       if (profileUpdateError) {
         console.error('Error updating profile avatar_url:', profileUpdateError);
+        // Attempt to remove the uploaded file if profile update fails
         await supabase.storage.from('avatars').remove([uploadData.path]);
         throw new Error(profileUpdateError.message || 'Failed to update profile with new avatar.');
       }
 
-      const updatedUser = { ...currentUser, avatar: publicAvatarUrl };
+      // Update user context
+      const updatedUser = { ...currentUser, avatar: publicAvatarUrlWithCacheBust };
       updateAuthContextUser(updatedUser);
 
       toast({ title: 'Success', description: 'Profile picture updated successfully!' });
-      setSelectedFile(null);
+      setSelectedFile(null); // Clear selected file
+      // Clear the file input
       const fileInput = document.getElementById('avatar-upload-input') as HTMLInputElement | null;
       if (fileInput) fileInput.value = '';
 
@@ -123,7 +138,7 @@ export default function ProfilePage() {
 
   if (loading) return <div className="flex justify-center items-center h-64"><Loader2 className="h-8 w-8 animate-spin text-primary" /> <p className="ml-2">Loading profile...</p></div>;
   if (!currentUser) {
-    router.push('/auth/login');
+    router.push('/auth/login'); // Should be handled by layout, but as a fallback
     return null;
   }
 
@@ -203,3 +218,4 @@ export default function ProfilePage() {
     </div>
   );
 }
+
