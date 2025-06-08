@@ -64,16 +64,18 @@ export interface NavItem {
   icon: React.ElementType;
   adminOnly?: boolean;
   activePathPrefix?: string;
-  teamViewable?: boolean; // New property for sidebar items visible to all users
+  teamViewable?: boolean;
+  userSpecific?: boolean; // For items like "My Notes"
 }
 
 export type NotificationType =
-  | 'new_comment_on_task' // Changed from 'new_comment' for specificity
+  | 'new_comment_on_task'
   | 'new_log'
   | 'task_assigned'
   | 'task_approved'
   | 'task_completed_for_approval'
-  | 'task_rejected' // Added
+  | 'task_rejected'
+  | 'new_note_received' // Added for new notes
   | 'generic';
 
 export interface NotificationItem {
@@ -87,7 +89,18 @@ export interface NotificationItem {
   triggered_by_user_id?: string | null; // Optional: Who triggered it
   task_id?: string | null; // Optional: Related task
   project_id?: string | null; // Optional: Related project
-  // Optional: for displaying triggerer's name if needed
+  note_id?: string | null; // Optional: Related note
   triggered_by_profile?: { full_name?: string | null } | null;
 }
 
+export interface Note {
+  id: string; // uuid
+  title: string;
+  content: string;
+  admin_id: string; // uuid of the admin who created the note
+  admin_name?: string; // denormalized for display
+  recipient_user_ids: string[]; // Array of user UUIDs
+  recipient_names?: string[]; // denormalized for display
+  created_at: string; // ISO date string
+  updated_at: string; // ISO date string
+}
