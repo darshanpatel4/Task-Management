@@ -169,11 +169,11 @@ export default function AdminEditUserPage() {
 
 
   async function onSubmit(values: UserEditFormValues) {
-    if (!user || !supabase) {
-      toast({ title: 'Error', description: 'User data or Supabase client unavailable.', variant: 'destructive' });
+    if (!user || !supabase || !adminUser) {
+      toast({ title: 'Error', description: 'User data, Supabase client, or admin session unavailable.', variant: 'destructive' });
       return;
     }
-     if (adminUser?.id === userIdToEdit && values.role !== 'Admin') {
+     if (adminUser.id === userIdToEdit && values.role !== 'Admin') {
       toast({
         title: 'Action Denied',
         description: 'Admins cannot change their own role to non-Admin.',
@@ -183,25 +183,53 @@ export default function AdminEditUserPage() {
       return;
     }
 
-
     setIsSubmitting(true);
+    console.log(`AdminEditUserPage: Attempting update for user ID: ${user.id} by admin: ${adminUser.id} (${adminUser.email})`);
+    console.log('AdminEditUserPage: Values being submitted:', values);
+
     try {
-      const { error: updateError } = await supabase
+      const { data: updateData, error: updateError } = await supabase
         .from('profiles')
         .update({
           full_name: values.fullName,
           role: values.role,
-          position: values.position || null,
+          position: values.position || null, // Ensure empty string becomes null
         })
-        .eq('id', user.id);
+        .eq('id', user.id)
+        .select(); // Important: Add .select() to get the result of the update
 
-      if (updateError) throw updateError;
+      console.log('AdminEditUserPage: Supabase update response - Data:', updateData, 'Error:', updateError);
 
-      toast({
-        title: 'User Updated',
-        description: `User "${values.fullName}" has been successfully updated.`,
-      });
-      router.push('/admin/users');
+      if (updateError) {
+        // This will catch explicit errors from Supabase (like network issues, malformed query if any)
+        throw updateError;
+      }
+
+      if (updateData && updateData.length > 0) {
+        toast({
+          title: 'User Updated',
+          description: `User "${values.fullName}" has been successfully updated.`,
+        });
+        router.push('/admin/users');
+      } else if (updateData && updateData.length === 0 && !updateError) {
+        // This case means the query ran successfully but no rows were updated.
+        // This is often an RLS issue where the `USING` clause filtered out all rows.
+        console.warn('AdminEditUserPage: Update query ran, but no rows were affected. This might indicate an RLS policy issue or incorrect user ID.');
+        toast({
+          title: 'Update Not Applied',
+          description: 'The user data was not changed. This might be due to permissions (RLS) or if the data was already up-to-date. Please check console for details.',
+          variant: 'default',
+          duration: 7000,
+        });
+      } else {
+        // Fallback for unexpected scenarios
+         toast({
+          title: 'Update Status Unknown',
+          description: 'The update operation completed, but its status could not be confirmed. Please verify the changes.',
+          variant: 'default',
+        });
+      }
+
     } catch (error: any) {
       const displayMessage = error.message || error.details || 'An unexpected error occurred. Please try again.';
       console.error(`Error updating user. Supabase Code: ${error.code}, Message: ${error.message}, Details: ${error.details}, Hint: ${error.hint}. Full error:`, error);
@@ -303,3 +331,4 @@ export default function AdminEditUserPage() {
     </Card>
   );
 }
+
