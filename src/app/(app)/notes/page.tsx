@@ -4,14 +4,19 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useAuth } from '@/context/AuthContext';
 import type { Note, User, NoteCategory } from '@/types';
+import { noteCategories } from '@/types'; // Import categories
 import { format, parseISO } from 'date-fns';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from '@/components/ui/card';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
-import { Loader2, AlertTriangle, Inbox, UserCircle, Tag } from 'lucide-react';
+import { Loader2, AlertTriangle, Inbox, UserCircle, Tag, Search, Filter } from 'lucide-react';
 import { supabase } from '@/lib/supabaseClient';
 import { useToast } from '@/hooks/use-toast';
 import { Badge } from '@/components/ui/badge';
 import Link from 'next/link';
+import { Input } from '@/components/ui/input';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Button } from '@/components/ui/button';
+
 
 interface ProfileMap {
   [userId: string]: Pick<User, 'id' | 'name' | 'avatar'>;
@@ -26,6 +31,9 @@ export default function MyNotesPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
+  const [searchTerm, setSearchTerm] = useState('');
+  const [selectedCategory, setSelectedCategory] = useState<NoteCategory | 'all'>('all');
+
   const fetchMyNotes = useCallback(async () => {
     if (!currentUser || !supabase) {
       setIsLoading(false);
@@ -36,11 +44,20 @@ export default function MyNotesPage() {
     setError(null);
 
     try {
-      const { data: notesData, error: notesError } = await supabase
+      let query = supabase
         .from('notes')
         .select('id, title, content, admin_id, created_at, category')
         .contains('recipient_user_ids', [currentUser.id])
         .order('created_at', { ascending: false });
+
+      if (searchTerm) {
+        query = query.ilike('title', `%${searchTerm}%`);
+      }
+      if (selectedCategory !== 'all') {
+        query = query.eq('category', selectedCategory);
+      }
+
+      const { data: notesData, error: notesError } = await query;
 
       if (notesError) throw notesError;
 
@@ -70,9 +87,9 @@ export default function MyNotesPage() {
         content: note.content,
         admin_id: note.admin_id,
         admin_name: fetchedAdminProfiles[note.admin_id]?.name || 'Admin',
-        recipient_user_ids: [currentUser.id],
+        recipient_user_ids: [currentUser.id], // Assuming we only care about current user as recipient here
         created_at: note.created_at,
-        updated_at: note.created_at,
+        updated_at: note.created_at, // Assuming updated_at is same as created_at for simplicity
         category: note.category as NoteCategory || 'General',
       }));
       setNotes(mappedNotes);
@@ -84,7 +101,7 @@ export default function MyNotesPage() {
     } finally {
       setIsLoading(false);
     }
-  }, [currentUser, toast]);
+  }, [currentUser, toast, searchTerm, selectedCategory]);
 
   useEffect(() => {
     fetchMyNotes();
@@ -100,6 +117,13 @@ export default function MyNotesPage() {
       default: return 'outline';
     }
   };
+  
+  const handleResetFilters = () => {
+    setSearchTerm('');
+    setSelectedCategory('all');
+  };
+
+  const hasActiveFilters = searchTerm !== '' || selectedCategory !== 'all';
 
   if (!currentUser && !isLoading) {
     return (
@@ -114,10 +138,50 @@ export default function MyNotesPage() {
     <div className="space-y-6">
       <Card>
         <CardHeader>
-          <CardTitle className="text-3xl flex items-center">
-            <Inbox className="mr-3 h-8 w-8 text-primary" /> My Notes
-          </CardTitle>
-          <CardDescription>Notes sent to you by administrators.</CardDescription>
+          <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+            <div>
+                <CardTitle className="text-3xl flex items-center">
+                    <Inbox className="mr-3 h-8 w-8 text-primary" /> My Notes
+                </CardTitle>
+                <CardDescription>Notes sent to you by administrators. Filter and search below.</CardDescription>
+            </div>
+            {hasActiveFilters && (
+                <Button variant="outline" size="sm" onClick={handleResetFilters} disabled={isLoading}>
+                    Reset Filters
+                </Button>
+            )}
+          </div>
+           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-4">
+            <div className="relative">
+              <Search className="absolute left-2.5 top-3 h-4 w-4 text-muted-foreground" />
+              <Input
+                type="search"
+                placeholder="Search by note title..."
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+                className="pl-8 w-full"
+                disabled={isLoading}
+              />
+            </div>
+            <Select 
+              value={selectedCategory} 
+              onValueChange={(value) => setSelectedCategory(value as NoteCategory | 'all')}
+              disabled={isLoading}
+            >
+              <SelectTrigger>
+                <div className="flex items-center">
+                    <Filter className="mr-2 h-4 w-4 text-muted-foreground" />
+                    <SelectValue placeholder="Filter by category" />
+                </div>
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All Categories</SelectItem>
+                {noteCategories.map(category => (
+                  <SelectItem key={category} value={category}>{category}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
         </CardHeader>
         <CardContent>
           {isLoading && (
@@ -131,15 +195,20 @@ export default function MyNotesPage() {
               <AlertTriangle className="h-8 w-8 mb-2" />
               <p className="font-semibold">Error Loading Notes</p>
               <p className="text-sm">{error}</p>
+               <Button variant="outline" size="sm" className="mt-4" onClick={fetchMyNotes} disabled={!supabase}>
+                Try Again
+              </Button>
             </div>
           )}
           {!isLoading && !error && notes.length === 0 && (
-            <p className="text-center text-muted-foreground py-12">You have no new notes.</p>
+            <p className="text-center text-muted-foreground py-12">
+              {hasActiveFilters ? 'No notes match your current filters.' : 'You have no notes.'}
+            </p>
           )}
           {!isLoading && !error && notes.length > 0 && (
             <div className="space-y-4">
               {notes.map((note) => (
-                <Card key={note.id} id={`note-${note.id}`} className="overflow-hidden">
+                <Card key={note.id} id={`note-${note.id}`} className="overflow-hidden hover:shadow-md transition-shadow duration-200">
                   <CardHeader className="pb-3">
                     <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center">
                         <div className="flex-1">
