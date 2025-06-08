@@ -53,7 +53,7 @@ export default function AdminNoteDetailPage() {
         else throw fetchError;
         setNote(null);
       } else if (data) {
-        const allUserIds = new Set<string>([data.admin_id, ...data.recipient_user_ids]);
+        const allUserIds = new Set<string>([data.admin_id, ...(data.recipient_user_ids || [])]);
         let newProfilesMap: ProfileMap = {};
 
         if (allUserIds.size > 0) {
@@ -169,17 +169,21 @@ export default function AdminNoteDetailPage() {
             </Badge>
           </div>
           <CardDescription className="pt-2">
-            <div className="flex items-center text-sm text-muted-foreground">
-                <UserCircle className="w-4 h-4 mr-1.5 flex-shrink-0" />
-                Sent by:
-                <Avatar className="h-5 w-5 ml-1.5 mr-1" data-ai-hint="admin avatar small">
-                    <AvatarImage src={adminProfile?.avatar || `https://placehold.co/20x20.png`} />
-                    <AvatarFallback className="text-xs">{adminProfile?.name?.substring(0,1) || 'A'}</AvatarFallback>
-                </Avatar>
-                <span className="font-medium">{adminProfile?.name || 'Unknown Admin'}</span>
-                <span className="mx-1.5">|</span>
-                <CalendarDays className="w-4 h-4 mr-1.5 flex-shrink-0" /> 
-                Created: {note.created_at ? format(parseISO(note.created_at), 'PPP') : 'N/A'}
+            <div className="flex flex-col space-y-1 sm:flex-row sm:space-y-0 sm:space-x-2 sm:items-center text-sm text-muted-foreground">
+                <div className="flex items-center">
+                    <UserCircle className="w-4 h-4 mr-1.5 flex-shrink-0" />
+                    Sent by:
+                    <Avatar className="h-5 w-5 ml-1.5 mr-1" data-ai-hint="admin avatar small">
+                        <AvatarImage src={adminProfile?.avatar || `https://placehold.co/20x20.png`} />
+                        <AvatarFallback className="text-xs">{adminProfile?.name?.substring(0,1) || 'A'}</AvatarFallback>
+                    </Avatar>
+                    <span className="font-medium">{adminProfile?.name || 'Unknown Admin'}</span>
+                </div>
+                <span className="mx-1.5 hidden sm:inline">|</span>
+                <div className="flex items-center">
+                    <CalendarDays className="w-4 h-4 mr-1.5 flex-shrink-0" /> 
+                    Created: {note.created_at ? format(parseISO(note.created_at), 'PPP') : 'N/A'}
+                </div>
             </div>
           </CardDescription>
         </CardHeader>
@@ -222,4 +226,3 @@ export default function AdminNoteDetailPage() {
     </div>
   );
 }
-
