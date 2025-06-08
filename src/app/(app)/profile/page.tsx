@@ -17,7 +17,7 @@ import { Loader2, UploadCloud } from 'lucide-react';
 export default function ProfilePage() {
   const { currentUser, loading, setCurrentUser: updateAuthContextUser } = useAuth();
   const router = useRouter();
-  const { toast, toasts } = useToast(); // Destructure toasts array
+  const { toast, toasts } = useToast();
 
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [isUploading, setIsUploading] = useState(false);
@@ -29,13 +29,13 @@ export default function ProfilePage() {
       if (!file.type.startsWith('image/')) {
         toast({ title: 'Invalid File Type', description: 'Please select an image file.', variant: 'destructive' });
         setSelectedFile(null);
-        event.target.value = '';
+        if (event.target) event.target.value = '';
         return;
       }
       if (file.size > 5 * 1024 * 1024) { // 5MB limit
         toast({ title: 'File Too Large', description: 'Please select an image smaller than 5MB.', variant: 'destructive' });
         setSelectedFile(null);
-        event.target.value = '';
+        if (event.target) event.target.value = '';
         return;
       }
       setSelectedFile(file);
@@ -57,47 +57,56 @@ export default function ProfilePage() {
       toast({ title: 'Upload Error', description: 'Your user ID is missing. Please re-login and try again.', variant: 'destructive'});
       return;
     }
-    console.log(`ProfilePage: Attempting to upload avatar for user ID: ${currentUser.id}`); 
+    console.log(`ProfilePage: Attempting to upload avatar for user ID: ${currentUser.id}`);
     setIsUploading(true);
     setUploadError(null);
 
     try {
       const fileExtension = selectedFile.name.split('.').pop();
-      const fileName = `avatar.${fileExtension}`; 
+      const fileName = `avatar.${fileExtension}`;
       const filePath = `public/${currentUser.id}/${fileName}`;
 
       console.log(`ProfilePage: Uploading to path: ${filePath}`);
-      console.log(`ProfilePage: Current user ID: ${currentUser.id}`);
-
 
       const { data: uploadData, error: uploadSupabaseError } = await supabase.storage
         .from('avatars')
         .upload(filePath, selectedFile, {
           cacheControl: '3600',
-          upsert: true, 
+          upsert: true,
         });
 
       if (uploadSupabaseError) {
         console.error(
-          'Error uploading avatar. Raw Supabase Error:', uploadSupabaseError,
+          'ProfilePage: Detailed Supabase Storage Upload Error Object:',
+          JSON.stringify(uploadSupabaseError, null, 2)
+        );
+        console.error(
+          'ProfilePage: Error uploading avatar. Raw Supabase Error:', uploadSupabaseError,
           'Name:', (uploadSupabaseError as any)?.name,
           'Message:', (uploadSupabaseError as any)?.message,
           'Status:', (uploadSupabaseError as any)?.status,
           'Stack:', (uploadSupabaseError as any)?.stack,
           'Error (nested):', (uploadSupabaseError as any)?.error
         );
+
+        const errorMessageString = (uploadSupabaseError as any)?.message || (uploadSupabaseError as any)?.error?.message || 'Failed to upload avatar to storage.';
         
-        let errorMessage = (uploadSupabaseError as any)?.message || (uploadSupabaseError as any)?.error?.message || 'Failed to upload avatar to storage. Check console for details.';
-        
-        // Check for specific RLS-like error message
-        if (typeof errorMessage === 'string' && errorMessage.includes('invalid input syntax for type uuid: "public"')) {
-          errorMessage = 'Critical: Storage RLS Misconfiguration. Failed to upload avatar due to a Row Level Security policy issue on your "avatars" storage bucket. The policy might be incorrectly trying to use "public" as a User ID. Please review your Supabase Storage RLS policies for INSERTs into the "avatars" bucket. Ensure they correctly use auth.uid() for ownership and that there are no conflicting policies.';
-          toast({ title: 'Critical: Storage RLS Misconfiguration', description: errorMessage, variant: 'destructive', duration: 30000 });
+        if (typeof errorMessageString === 'string' && errorMessageString.includes('invalid input syntax for type uuid: "public"')) {
+          const rlsDetailMessage = 'CRITICAL SUPABASE RLS ERROR: Avatar upload failed. The error "invalid input syntax for type uuid: \'public\'" means there is a problem with your Row Level Security (RLS) policies on the "avatars" storage bucket in Supabase. Specifically, the INSERT policy is likely misconfigured and trying to use the word "public" (from the file path) as a User ID (UUID). \n\nSOLUTION: Go to your Supabase Project -> SQL Editor and run the provided SQL script that DROPS existing policies for the "avatars" bucket and creates the correct ones. Ensure policies named "Allow authenticated users to upload to their own public folder" are correctly set for INSERT operations, using `auth.uid()` for ownership. Double-check for any old or conflicting RLS policies on `storage.objects` for the `avatars` bucket and remove them.';
+          console.error("ProfilePage: SPECIFIC RLS CONFIGURATION ERROR DETECTED:", rlsDetailMessage);
+          setUploadError(rlsDetailMessage); // Display this detailed message on the page
+          
+          const rlsErrorToastIsOpen = toasts?.find(
+            t => t.title === 'Critical: Storage RLS Misconfiguration' && t.open
+          );
+          if (!rlsErrorToastIsOpen) {
+            toast({ title: 'Critical: Storage RLS Misconfiguration', description: rlsDetailMessage, variant: 'destructive', duration: 60000 }); // Longer duration
+          }
         } else {
-           toast({ title: 'Upload Failed', description: errorMessage, variant: 'destructive' });
+          setUploadError(errorMessageString);
+          toast({ title: 'Upload Failed', description: errorMessageString, variant: 'destructive' });
         }
-        setUploadError(errorMessage);
-        throw new Error(errorMessage); 
+        throw new Error(errorMessageString); 
       }
 
       if (!uploadData || !uploadData.path) {
@@ -121,7 +130,6 @@ export default function ProfilePage() {
 
       if (profileUpdateError) {
         console.error('Error updating profile avatar_url:', profileUpdateError);
-        // Attempt to remove the orphaned file from storage
         try {
             await supabase.storage.from('avatars').remove([uploadData.path]);
             console.log('Orphaned avatar file removed from storage:', uploadData.path);
@@ -140,19 +148,12 @@ export default function ProfilePage() {
       if (fileInput) fileInput.value = '';
 
     } catch (error: any) {
-      // This catch block will now handle errors thrown from within, including the specific RLS message
-      const rlsErrorToastIsOpen = toasts?.find(
-        t => t.title === 'Critical: Storage RLS Misconfiguration' && t.open
-      );
-
-      if (!rlsErrorToastIsOpen) { 
-        setUploadError(error.message || 'An unexpected error occurred during the avatar upload process.');
-        // Avoid double-toasting if the specific RLS toast was already shown
-        if (!error.message?.includes('Critical: Storage RLS Misconfiguration')) {
-            toast({ title: 'Upload Process Error', description: error.message || 'Could not update profile picture.', variant: 'destructive' });
-        }
+      const generalErrorMessage = error.message || 'An unexpected error occurred during the avatar upload process.';
+      // Only set general upload error if a more specific RLS error wasn't already set.
+      if (!uploadError || !uploadError.startsWith('CRITICAL SUPABASE RLS ERROR')) {
+         setUploadError(generalErrorMessage);
       }
-      console.error('Avatar upload process error (outer catch):', error.message);
+      console.error('ProfilePage: Avatar upload process error (outer catch):', generalErrorMessage);
     } finally {
       setIsUploading(false);
     }
@@ -161,7 +162,7 @@ export default function ProfilePage() {
 
   if (loading) return <div className="flex justify-center items-center h-64"><Loader2 className="h-8 w-8 animate-spin text-primary" /> <p className="ml-2">Loading profile...</p></div>;
   if (!currentUser) {
-    router.push('/auth/login'); 
+    if (typeof window !== 'undefined') router.push('/auth/login'); 
     return null;
   }
 
@@ -206,7 +207,12 @@ export default function ProfilePage() {
                 Upload Avatar
               </Button>
             </div>
-            {uploadError && <p className="text-sm text-destructive text-center px-4 py-2 bg-destructive/10 rounded-md">{uploadError}</p>}
+            {uploadError && (
+                <div className="w-full p-4 bg-destructive/10 border border-destructive/30 rounded-md text-destructive text-sm">
+                    <p className="font-semibold">Upload Error:</p>
+                    <p className="whitespace-pre-wrap">{uploadError}</p>
+                </div>
+            )}
           </div>
           
           <Separator />
@@ -241,4 +247,3 @@ export default function ProfilePage() {
     </div>
   );
 }
-
