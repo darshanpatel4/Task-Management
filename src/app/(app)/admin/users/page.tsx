@@ -8,17 +8,18 @@ import { Button } from '@/components/ui/button';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
-import { UserPlus, Edit3, Trash2, ShieldCheck, UserCircle, Loader2, AlertTriangle } from 'lucide-react';
+import { UserPlus, Edit3, Trash2, ShieldCheck, UserCircle, Loader2, AlertTriangle, Award } from 'lucide-react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { useRouter } from 'next/navigation';
 import { supabase } from '@/lib/supabaseClient';
 import { useToast } from '@/hooks/use-toast';
+import Link from 'next/link';
 
 export default function UserManagementPage() {
   const { currentUser, isAdmin } = useAuth();
   const router = useRouter();
   const { toast } = useToast();
-  
+
   const [users, setUsers] = useState<User[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -40,11 +41,11 @@ export default function UserManagementPage() {
     try {
       const { data, error: supabaseError } = await supabase
         .from('profiles')
-        .select('id, full_name, email, role, avatar_url'); 
+        .select('id, full_name, email, role, avatar_url, position'); // Added position
 
       if (supabaseError) throw supabaseError;
-      
-      console.log("UserManagementPage: Fetched profiles data from Supabase:", data); // Diagnostic log
+
+      console.log("UserManagementPage: Fetched profiles data from Supabase:", data);
 
       const mappedUsers: User[] = (data || []).map(profile => ({
         id: profile.id,
@@ -52,6 +53,7 @@ export default function UserManagementPage() {
         email: profile.email || 'N/A (Email missing in profile)',
         role: profile.role as User['role'] || 'User',
         avatar: profile.avatar_url || undefined,
+        position: profile.position || 'N/A', // Added position
       }));
 
       setUsers(mappedUsers);
@@ -90,13 +92,6 @@ export default function UserManagementPage() {
     );
   }
 
-  const handleEditUser = (userId: string) => {
-    toast({
-      title: "Edit User",
-      description: `Functionality to edit user ${userId} will be implemented here.`,
-    });
-  };
-
   const handleDeleteUser = async (userId: string, userName: string) => {
      if (!supabase) {
       toast({
@@ -117,15 +112,20 @@ export default function UserManagementPage() {
 
     if (confirm(`Are you sure you want to delete user "${userName}"? This action is permanent and will remove the user from authentication and their profile. This action is currently mocked.`)) {
       console.warn(`Mock delete user: ${userId} (${userName}). Actual Supabase admin deletion needed.`);
+      // For actual deletion, you'd use supabase.auth.admin.deleteUser(userId)
+      // This requires the SUPABASE_SERVICE_ROLE_KEY to be set in your environment for the admin client.
+      // Since we don't have admin client setup on front-end, we keep it mocked.
       toast({
         title: "Mock User Deletion",
-        description: `User ${userName} delete process initiated (mocked). For actual deletion, a Supabase Admin action is required.`,
+        description: `User ${userName} delete process initiated (mocked). For actual deletion, a Supabase Admin action is required on the backend or via Supabase Studio.`,
       });
+      // To refresh the list optimistically (or after a real backend call):
+      // setUsers(prevUsers => prevUsers.filter(u => u.id !== userId));
     }
   };
-  
+
   const handleAddUser = () => {
-    router.push('/admin/users/create'); 
+    router.push('/admin/users/create');
   };
 
   return (
@@ -171,6 +171,7 @@ export default function UserManagementPage() {
                     <TableHead>Avatar</TableHead>
                     <TableHead>Name</TableHead>
                     <TableHead>Email</TableHead>
+                    <TableHead>Position</TableHead>
                     <TableHead>Role</TableHead>
                     <TableHead className="text-right">Actions</TableHead>
                   </TableRow>
@@ -186,6 +187,9 @@ export default function UserManagementPage() {
                       </TableCell>
                       <TableCell className="font-medium">{user.name}</TableCell>
                       <TableCell>{user.email}</TableCell>
+                      <TableCell className="text-muted-foreground max-w-[150px] truncate">
+                        {user.position || <span className="italic">Not set</span>}
+                      </TableCell>
                       <TableCell>
                         <Badge variant={user.role === 'Admin' ? 'default' : 'secondary'} className="capitalize">
                           {user.role === 'Admin' ? <ShieldCheck className="mr-1 h-3 w-3" /> : <UserCircle className="mr-1 h-3 w-3" />}
@@ -194,15 +198,17 @@ export default function UserManagementPage() {
                       </TableCell>
                       <TableCell className="text-right">
                         <div className="flex justify-end gap-1">
-                            <Button variant="ghost" size="icon" onClick={() => handleEditUser(user.id)} aria-label="Edit user" disabled={!supabase || isLoading}>
-                                <Edit3 className="h-4 w-4" />
-                            </Button>
-                            <Button 
-                              variant="ghost" 
-                              size="icon" 
-                              className="text-destructive hover:text-destructive" 
-                              onClick={() => handleDeleteUser(user.id, user.name)} 
-                              aria-label="Delete user" 
+                            <Link href={`/admin/users/edit/${user.id}`}>
+                              <Button variant="ghost" size="icon" aria-label="Edit user" disabled={!supabase || isLoading}>
+                                  <Edit3 className="h-4 w-4" />
+                              </Button>
+                            </Link>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="text-destructive hover:text-destructive"
+                              onClick={() => handleDeleteUser(user.id, user.name)}
+                              aria-label="Delete user"
                               disabled={!supabase || isLoading || currentUser?.id === user.id}
                               title={currentUser?.id === user.id ? "Cannot delete self" : "Delete user"}
                             >

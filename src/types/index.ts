@@ -7,6 +7,7 @@ export interface User {
   email: string; // From auth.users (or profiles if denormalized)
   role: UserRole;
   avatar?: string; // URL to avatar image
+  position?: string | null; // New field for job title/position
 }
 
 export type TaskStatus = 'Pending' | 'In Progress' | 'Completed' | 'Approved';
@@ -63,14 +64,15 @@ export interface NavItem {
   icon: React.ElementType;
   adminOnly?: boolean;
   activePathPrefix?: string;
+  teamViewable?: boolean; // New property for sidebar items visible to all users
 }
 
-export type NotificationType = 
+export type NotificationType =
   | 'new_comment_on_task' // Changed from 'new_comment' for specificity
-  | 'new_log' 
-  | 'task_assigned' 
-  | 'task_approved' 
-  | 'task_completed_for_approval' 
+  | 'new_log'
+  | 'task_assigned'
+  | 'task_approved'
+  | 'task_completed_for_approval'
   | 'task_rejected' // Added
   | 'generic';
 
@@ -88,3 +90,4 @@ export interface NotificationItem {
   // Optional: for displaying triggerer's name if needed
   triggered_by_profile?: { full_name?: string | null } | null;
 }
+

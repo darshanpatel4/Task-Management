@@ -25,16 +25,17 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { useAuth } from '@/context/AuthContext';
 import { useRouter } from 'next/navigation';
 import { useToast } from '@/hooks/use-toast';
-import { Loader2, UserPlus, Briefcase, Lock, Mail, User } from 'lucide-react';
+import { Loader2, UserPlus, Briefcase, Lock, Mail, User as UserIcon, Award } from 'lucide-react'; // Added Award for Position
 import { useState } from 'react';
 import type { UserRole } from '@/types';
-import { supabase } from '@/lib/supabaseClient'; // Import Supabase client
+import { supabase } from '@/lib/supabaseClient';
 
 const userCreateFormSchema = z.object({
   fullName: z.string().min(2, { message: 'Full name must be at least 2 characters.' }),
   email: z.string().email({ message: 'Invalid email address.' }),
   password: z.string().min(6, { message: 'Password must be at least 6 characters.' }),
   role: z.enum(['Admin', 'User'] as [UserRole, ...UserRole[]], { required_error: 'Role is required.' }),
+  position: z.string().max(100, { message: 'Position must be 100 characters or less.' }).optional(),
 });
 
 type UserCreateFormValues = z.infer<typeof userCreateFormSchema>;
@@ -52,6 +53,7 @@ export default function AdminCreateUserPage() {
       email: '',
       password: '',
       role: 'User',
+      position: '',
     },
   });
 
@@ -90,6 +92,7 @@ export default function AdminCreateUserPage() {
           data: {
             full_name: values.fullName,
             role: values.role,
+            position: values.position || null, // Add position to metadata
             // avatar_url could be added here if you have a default or collect it
           },
         },
@@ -109,10 +112,10 @@ export default function AdminCreateUserPage() {
       } else if (data.user) {
         // The on_auth_user_created trigger should handle profile creation.
         // data.session will be null if email confirmation is required.
-        const message = data.session 
+        const message = data.session
           ? `User ${values.fullName} created successfully and can now log in.`
           : `User ${values.fullName} registration initiated. Please check their email for confirmation.`;
-        
+
         toast({
           title: 'User Creation Initiated',
           description: message,
@@ -147,7 +150,7 @@ export default function AdminCreateUserPage() {
         </CardTitle>
         <CardDescription>
           Fill in the details below to create a new user account.
-          The profile will be created via a database trigger using the provided full name and role.
+          The profile will be created via a database trigger using the provided full name, role, and position.
         </CardDescription>
       </CardHeader>
       <CardContent>
@@ -159,7 +162,7 @@ export default function AdminCreateUserPage() {
               render={({ field }) => (
                 <FormItem>
                   <FormLabel className="flex items-center">
-                    <User className="mr-2 h-4 w-4 text-muted-foreground" />
+                    <UserIcon className="mr-2 h-4 w-4 text-muted-foreground" />
                     Full Name
                   </FormLabel>
                   <FormControl>
@@ -196,6 +199,22 @@ export default function AdminCreateUserPage() {
                   </FormLabel>
                   <FormControl>
                     <Input type="password" placeholder="Must be at least 6 characters" {...field} />
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+            <FormField
+              control={form.control}
+              name="position"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel className="flex items-center">
+                    <Award className="mr-2 h-4 w-4 text-muted-foreground" />
+                    Position (Optional)
+                  </FormLabel>
+                  <FormControl>
+                    <Input placeholder="e.g., Sr. Developer, UI/UX Designer" {...field} />
                   </FormControl>
                   <FormMessage />
                 </FormItem>
@@ -240,5 +259,3 @@ export default function AdminCreateUserPage() {
     </Card>
   );
 }
-
-    

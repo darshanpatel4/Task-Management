@@ -1,10 +1,10 @@
+
 'use client';
 
 import type { User, UserRole } from '@/types';
-import React, { createContext, useContext, useState, ReactNode, useEffect, useCallback } from 'react';
-import { useRouter, usePathname } from 'next/navigation';
+import React, { createContext, useContext, useState, ReactNode, useEffect, useCallback, useRef } from 'react';
 import { supabase } from '@/lib/supabaseClient';
-import type { AuthChangeEvent, Session, User as SupabaseUser, PostgrestError } from '@supabase/supabase-js';
+import type { AuthChangeEvent, Session, User as SupabaseUser } from '@supabase/supabase-js';
 
 interface AuthContextType {
   currentUser: User | null;
@@ -34,165 +34,221 @@ const mapSupabaseUserToAppUser = (supabaseUser: SupabaseUser | null, profile: an
     email: profile?.email || supabaseUser.email || '',
     role: role,
     avatar: profile?.avatar_url || `https://placehold.co/100x100.png?u=${supabaseUser.id}`,
+    position: profile?.position || null, // Include position
   };
 };
 
 export const AuthProvider = ({ children }: { children: ReactNode }) => {
-  const [currentUser, setCurrentUserStateInternal] = useState<User | null>(null);
-  const [session, setSessionStateInternal] = useState<Session | null>(null);
-  const [loading, setLoadingStateInternal] = useState(true);
-  const [isInitialized, setIsInitializedStateInternal] = useState(false);
+  const [currentUserState, setCurrentUserStateInternal] = useState<User | null>(null);
+  const [sessionState, setSessionStateInternal] = useState<Session | null>(null);
+  const [loadingState, setLoadingStateInternal] = useState(true);
+  const [isInitializedState, setIsInitializedStateInternal] = useState(false);
+  const isMountedRef = useRef(false);
+
 
   const setCurrentUser = useCallback((user: User | null) => {
-    setCurrentUserStateInternal(user);
+    if (isMountedRef.current) {
+      setCurrentUserStateInternal(user);
+    }
   }, []);
 
   const fetchProfileAndSetUser = useCallback(async (sbUser: SupabaseUser, operationTag: string): Promise<User | null> => {
-    // Skip if we already have this user's data
-    if (currentUser?.id === sbUser.id) {
-      console.log(`Profile for ${sbUser.id} already loaded, skipping fetch`);
-      return currentUser;
+    console.log(`AuthContext: fetchProfileAndSetUser called for ${sbUser.id} from ${operationTag}`);
+    if (currentUserState?.id === sbUser.id && currentUserState?.email === sbUser.email && currentUserState.name !== 'User' && sbUser.email) {
+      // Check if essential profile data likely already exists to avoid unnecessary fetches.
+      // This check needs to be robust; for example, if name is still default, profile might not be fully loaded.
+      console.log(`AuthContext: Profile for ${sbUser.id} likely already loaded or being loaded, skipping redundant fetch from ${operationTag}. Current user name: ${currentUserState.name}`);
+      if (isMountedRef.current) { // Ensure loading is set to false if we skip
+         // setLoadingStateInternal(false); // This might be too aggressive, only set if truly done
+      }
+      return currentUserState;
     }
 
     if (!supabase) {
-      console.warn('Supabase client not available during profile fetch');
+      console.warn('AuthContext: Supabase client not available during profile fetch.');
       const mapped = mapSupabaseUserToAppUser(sbUser, null);
-      setCurrentUserStateInternal(mapped);
+      if (isMountedRef.current) setCurrentUserStateInternal(mapped);
       return mapped;
     }
 
+    console.log(`AuthContext: BEFORE Supabase call for profile ${sbUser.id} from ${operationTag}`);
     try {
       const { data: profile, error: profileError } = await supabase
         .from('profiles')
-        .select('id, full_name, email, role, avatar_url')
+        .select('id, full_name, email, role, avatar_url, position') // Select position
         .eq('id', sbUser.id)
         .single();
-      
+      console.log(`AuthContext: AFTER Supabase call for profile ${sbUser.id} from ${operationTag}. Profile:`, profile, "Error:", profileError);
+
       if (profileError) {
-        console.error(`Error fetching profile: ${profileError.message}`);
+        console.error(`AuthContext: Error fetching profile for ${sbUser.id} from ${operationTag}: ${profileError.message}. Code: ${profileError.code}`);
+        if (profileError.code === 'PGRST116' && operationTag !== 'initialSession') { // PGRST116: 0 rows
+          console.warn(`AuthContext: Profile not found for ${sbUser.id}, possibly a new user. Trigger should create it.`);
+           // For a very new user, the trigger might not have finished. We'll rely on onAuthStateChange or next fetch.
+           // Don't nullify currentUserState here if it was already set by a previous successful SIGNED_IN.
+           const mappedWithoutProfile = mapSupabaseUserToAppUser(sbUser, null);
+           if(isMountedRef.current) setCurrentUserStateInternal(mappedWithoutProfile);
+           return mappedWithoutProfile;
+        }
         const mapped = mapSupabaseUserToAppUser(sbUser, null);
-        setCurrentUserStateInternal(mapped);
+        if (isMountedRef.current) setCurrentUserStateInternal(mapped);
         return mapped;
       }
       
       const mapped = mapSupabaseUserToAppUser(sbUser, profile);
-      setCurrentUserStateInternal(mapped);
+      if (isMountedRef.current) setCurrentUserStateInternal(mapped);
       return mapped;
     } catch (e: any) {
-      console.error(`Exception during profile fetch: ${e.message}`);
+      console.error(`AuthContext: Exception during profile fetch for ${sbUser.id} from ${operationTag}: ${e.message}`);
       const mapped = mapSupabaseUserToAppUser(sbUser, null);
-      setCurrentUserStateInternal(mapped);
+      if (isMountedRef.current) setCurrentUserStateInternal(mapped);
       return mapped;
     }
-  }, [currentUser]);
+  }, [currentUserState]); // Added supabase as dependency, as fetchProfileAndSetUser uses it.
 
   useEffect(() => {
+    isMountedRef.current = true;
+    console.log("AuthContext: Component mounted. isMountedRef set to true.");
+
     if (!supabase) {
-      console.warn("Supabase client not initialized. Auth features disabled.");
-      setLoadingStateInternal(false);
-      setIsInitializedStateInternal(true);
-      return;
+      console.warn("AuthContext: Supabase client not initialized. Auth features may be limited or use mocks.");
+      if (isMountedRef.current) {
+        setLoadingStateInternal(false);
+        setIsInitializedStateInternal(true);
+      }
+      return () => { isMountedRef.current = false; console.log("AuthContext: Component unmounted. isMountedRef set to false."); };
     }
 
-    let isMounted = true;
-    setLoadingStateInternal(true);
+    console.log("AuthContext: Initializing auth state...");
+    if (isMountedRef.current) setLoadingStateInternal(true);
 
-    // Initial session check
     supabase.auth.getSession().then(async ({ data: { session: currentSession }, error: sessionError }) => {
-      if (!isMounted) return;
+      console.log("AuthContext: Initial getSession completed. isMountedRef:", isMountedRef.current);
+      if (!isMountedRef.current) {
+        console.log("AuthContext: Initial getSession result ignored, component unmounted.");
+        return;
+      }
 
       if (sessionError) {
-        console.error("Initial getSession error:", sessionError);
+        console.error("AuthContext: Initial getSession error:", sessionError);
         setCurrentUserStateInternal(null);
         setSessionStateInternal(null);
       } else {
+        console.log("AuthContext: Initial session data:", currentSession);
         setSessionStateInternal(currentSession);
         if (currentSession?.user) {
+          console.log("AuthContext: User found in initial session, fetching profile...");
           await fetchProfileAndSetUser(currentSession.user, "initialSession");
         } else {
+          console.log("AuthContext: No user in initial session.");
           setCurrentUserStateInternal(null);
         }
       }
     }).catch(error => {
-      if (!isMounted) return;
-      console.error("Initial getSession exception:", error);
+      if (!isMountedRef.current) return;
+      console.error("AuthContext: Initial getSession exception:", error);
       setCurrentUserStateInternal(null);
       setSessionStateInternal(null);
     }).finally(() => {
-      if (!isMounted) return;
+      if (!isMountedRef.current) return;
+      console.log("AuthContext: Initial auth setup finished. Setting loading to false, initialized to true.");
       setLoadingStateInternal(false);
       setIsInitializedStateInternal(true);
     });
 
-    // Auth state change listener
     const { data: authListener } = supabase.auth.onAuthStateChange(
       async (event: AuthChangeEvent, newSession: Session | null) => {
-        if (!isMounted) return;
-        
-        console.log(`Auth event: ${event}`);
-        
-        // Always update session state
-        setSessionStateInternal(newSession);
-
-        // Only handle specific events
-        if (event === 'SIGNED_IN' || event === 'USER_UPDATED') {
-          if (newSession?.user) {
-            setLoadingStateInternal(true);
-            await fetchProfileAndSetUser(newSession.user, `onAuthChange-${event}`);
-          }
-        } 
-        else if (event === 'SIGNED_OUT') {
-          setCurrentUserStateInternal(null);
-        }
-        // Explicitly ignore TOKEN_REFRESHED events
-        else if (event === 'TOKEN_REFRESHED') {
-          console.log('Ignoring token refresh event');
+        if (!isMountedRef.current) {
+          console.log(`AuthContext: onAuthStateChange event '${event}' ignored, component unmounted.`);
           return;
         }
+        console.log(`AuthContext: onAuthStateChange event: ${event}, session:`, newSession);
         
-        setLoadingStateInternal(false);
+        if (isMountedRef.current) setSessionStateInternal(newSession);
+
+        if (event === 'SIGNED_IN' || event === 'USER_UPDATED' || event === 'INITIAL_SESSION') {
+          if (newSession?.user) {
+            if (isMountedRef.current) setLoadingStateInternal(true);
+            await fetchProfileAndSetUser(newSession.user, `onAuthChange-${event}`);
+            if (isMountedRef.current) setLoadingStateInternal(false);
+          } else if (event === 'SIGNED_IN' && !newSession?.user) {
+             // This can happen if token is invalid or user removed during an active session attempt
+             console.warn(`AuthContext: SIGNED_IN event but no user in session. Resetting currentUser.`);
+             if(isMountedRef.current) setCurrentUserStateInternal(null);
+          }
+        } else if (event === 'SIGNED_OUT') {
+          if (isMountedRef.current) {
+            setCurrentUserStateInternal(null);
+            // setSessionStateInternal(null); // Already handled by the line above
+          }
+        } else if (event === 'TOKEN_REFRESHED') {
+          console.log('AuthContext: Token refreshed. Session updated. User profile fetch not typically needed unless other user details changed.');
+          // If user data might change with token refresh (unlikely for profile details usually), uncomment:
+          // if (newSession?.user) {
+          //   setLoadingStateInternal(true);
+          //   await fetchProfileAndSetUser(newSession.user, "onAuthChange-TOKEN_REFRESHED");
+          //   setLoadingStateInternal(false);
+          // }
+        }
+        // Ensure loading is false after handling, unless it's an unhandled case that might need it true
+        if (isMountedRef.current && (event !== 'SIGNED_IN' && event !== 'USER_UPDATED' && event !== 'INITIAL_SESSION')) {
+            // setLoadingStateInternal(false); // Potentially problematic if another async op is pending
+        }
+         if (isMountedRef.current && !isInitializedState) { // Ensure initialized is set true after first event if not by getSession
+            setIsInitializedStateInternal(true);
+         }
       }
     );
+    console.log("AuthContext: onAuthStateChange listener subscribed.");
 
     return () => {
-      isMounted = false;
+      isMountedRef.current = false;
+      console.log("AuthContext: Component unmounted. Unsubscribing onAuthStateChange listener. isMountedRef set to false.");
       authListener?.subscription.unsubscribe();
     };
-  }, [fetchProfileAndSetUser]);
+  }, [supabase, fetchProfileAndSetUser, setCurrentUser, isInitializedState]); // Added supabase, fetchProfileAndSetUser, setCurrentUser
 
   const logout = async () => {
     if (!supabase) {
-      console.warn("Supabase client not available. Mock logout.");
-      setCurrentUserStateInternal(null);
-      setSessionStateInternal(null);
-      setLoadingStateInternal(false);
+      console.warn("AuthContext: Supabase client not available. Mock logout.");
+      if (isMountedRef.current) {
+        setCurrentUserStateInternal(null);
+        setSessionStateInternal(null);
+        setLoadingStateInternal(false); // Ensure loading is false on mock logout
+      }
       return;
     }
     
-    setLoadingStateInternal(true);
+    if (isMountedRef.current) setLoadingStateInternal(true);
     try {
+      console.log("AuthContext: Signing out...");
       const { error } = await supabase.auth.signOut();
       if (error) {
-        console.error("Error signing out:", error);
+        console.error("AuthContext: Error signing out:", error);
       }
-      // onAuthStateChange will handle the state reset
+      // onAuthStateChange will handle setting currentUser and session to null
+      console.log("AuthContext: Sign out successful (or error handled by onAuthStateChange).");
     } catch (e) {
-      console.error("Exception during signout:", e);
-      setLoadingStateInternal(false);
+      console.error("AuthContext: Exception during signout:", e);
+    } finally {
+       if (isMountedRef.current) {
+        // State resets are handled by onAuthStateChange, but ensure loading is false
+        // setLoadingStateInternal(false); // This might be set by onAuthStateChange too.
+       }
     }
   };
   
-  const isAdmin = currentUser?.role === 'Admin';
+  const isAdmin = currentUserState?.role === 'Admin';
 
   return (
     <AuthContext.Provider value={{ 
-      currentUser, 
+      currentUser: currentUserState, 
       setCurrentUser, 
       logout, 
       isAdmin, 
-      loading, 
-      isInitialized, 
-      session 
+      loading: loadingState, 
+      isInitialized: isInitializedState, 
+      session: sessionState 
     }}>
       {children}
     </AuthContext.Provider>
