@@ -57,22 +57,22 @@ export default function ProfilePage() {
       toast({ title: 'Upload Error', description: 'Your user ID is missing. Please re-login and try again.', variant: 'destructive'});
       return;
     }
-
+    console.log(`ProfilePage: Attempting to upload avatar for user ID: ${currentUser.id}`); 
     setIsUploading(true);
     setUploadError(null);
 
     try {
       const fileExtension = selectedFile.name.split('.').pop();
-      const fileName = `avatar.${fileExtension}`; // Consistent naming for easier overwriting/cache busting
+      const fileName = `avatar.${fileExtension}`; 
       const filePath = `public/${currentUser.id}/${fileName}`;
 
-      console.log(`Attempting to upload avatar for user ID: ${currentUser.id} to path: ${filePath}`); // Log user ID and path
+      console.log(`ProfilePage: Uploading to path: ${filePath}`);
 
       const { data: uploadData, error: uploadSupabaseError } = await supabase.storage
         .from('avatars')
         .upload(filePath, selectedFile, {
-          cacheControl: '3600', // Cache for 1 hour
-          upsert: true, // Overwrite if file already exists
+          cacheControl: '3600',
+          upsert: true, 
         });
 
       if (uploadSupabaseError) {
@@ -84,19 +84,26 @@ export default function ProfilePage() {
           'Stack:', (uploadSupabaseError as any)?.stack,
           'Error (nested):', (uploadSupabaseError as any)?.error
         );
-        throw new Error((uploadSupabaseError as any)?.message || (uploadSupabaseError as any)?.error?.message || 'Failed to upload avatar to storage. Check console for details.');
+        
+        let errorMessage = (uploadSupabaseError as any)?.message || (uploadSupabaseError as any)?.error?.message || 'Failed to upload avatar to storage. Check console for details.';
+        if (typeof errorMessage === 'string' && errorMessage.includes('invalid input syntax for type uuid: "public"')) {
+          // This is the specific error you're encountering.
+          errorMessage = 'Database RLS Error: Failed to upload avatar. This is due to a misconfigured or conflicting Row Level Security policy on your "avatars" storage bucket. The policy is incorrectly trying to use "public" as a User ID. Please review your Supabase Storage RLS policies for INSERTs into the "avatars" bucket. Ensure they correctly use auth.uid() for ownership and that there are no conflicting policies.';
+          toast({ title: 'Critical: Storage RLS Misconfiguration', description: errorMessage, variant: 'destructive', duration: 20000 });
+        } else {
+           toast({ title: 'Upload Failed', description: errorMessage, variant: 'destructive' });
+        }
+        setUploadError(errorMessage);
+        throw new Error(errorMessage); // Re-throw to be caught by outer catch if needed, or just return
       }
 
       if (!uploadData || !uploadData.path) {
           throw new Error('Avatar upload successful but path not returned from storage.');
       }
       
-      // Construct public URL. Adding a timestamp query parameter for cache busting.
       const { data: urlData } = supabase.storage
         .from('avatars')
-        .getPublicUrl(uploadData.path, {
-           // transform: { width: 200, height: 200, resize: 'cover' } // Optional: server-side resize
-        });
+        .getPublicUrl(uploadData.path);
         
       if (!urlData || !urlData.publicUrl) {
         throw new Error('Could not retrieve public URL for avatar.');
@@ -106,30 +113,31 @@ export default function ProfilePage() {
 
       const { error: profileUpdateError } = await supabase
         .from('profiles')
-        .update({ avatar_url: publicAvatarUrlWithCacheBust }) // Store URL with cache buster
+        .update({ avatar_url: publicAvatarUrlWithCacheBust }) 
         .eq('id', currentUser.id);
 
       if (profileUpdateError) {
         console.error('Error updating profile avatar_url:', profileUpdateError);
-        // Attempt to remove the uploaded file if profile update fails
         await supabase.storage.from('avatars').remove([uploadData.path]);
         throw new Error(profileUpdateError.message || 'Failed to update profile with new avatar.');
       }
 
-      // Update user context
       const updatedUser = { ...currentUser, avatar: publicAvatarUrlWithCacheBust };
       updateAuthContextUser(updatedUser);
 
       toast({ title: 'Success', description: 'Profile picture updated successfully!' });
-      setSelectedFile(null); // Clear selected file
-      // Clear the file input
+      setSelectedFile(null); 
       const fileInput = document.getElementById('avatar-upload-input') as HTMLInputElement | null;
       if (fileInput) fileInput.value = '';
 
     } catch (error: any) {
-      console.error('Avatar upload process error:', error);
-      setUploadError(error.message || 'An unexpected error occurred.');
-      toast({ title: 'Upload Failed', description: error.message || 'Could not update profile picture.', variant: 'destructive' });
+      // This catch block will now handle errors thrown from within, including the specific RLS message
+      if (!toast.toasts.find(t => t.title === 'Critical: Storage RLS Misconfiguration' && t.open)) { // Avoid double toast for the RLS error
+        setUploadError(error.message || 'An unexpected error occurred during the avatar upload process.');
+        // toast({ title: 'Upload Process Error', description: error.message || 'Could not update profile picture.', variant: 'destructive' });
+      }
+      // The specific toast for RLS is handled inside the try block now
+      console.error('Avatar upload process error (outer catch):', error.message);
     } finally {
       setIsUploading(false);
     }
@@ -138,7 +146,7 @@ export default function ProfilePage() {
 
   if (loading) return <div className="flex justify-center items-center h-64"><Loader2 className="h-8 w-8 animate-spin text-primary" /> <p className="ml-2">Loading profile...</p></div>;
   if (!currentUser) {
-    router.push('/auth/login'); // Should be handled by layout, but as a fallback
+    router.push('/auth/login'); 
     return null;
   }
 
@@ -183,7 +191,7 @@ export default function ProfilePage() {
                 Upload Avatar
               </Button>
             </div>
-            {uploadError && <p className="text-sm text-destructive text-center">{uploadError}</p>}
+            {uploadError && <p className="text-sm text-destructive text-center px-4 py-2 bg-destructive/10 rounded-md">{uploadError}</p>}
           </div>
           
           <Separator />
