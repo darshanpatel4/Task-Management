@@ -26,17 +26,16 @@ export default function ProfilePage() {
   const handleFileChange = (event: ChangeEvent<HTMLInputElement>) => {
     if (event.target.files && event.target.files[0]) {
       const file = event.target.files[0];
-      // Basic validation (optional: add more specific checks)
       if (!file.type.startsWith('image/')) {
         toast({ title: 'Invalid File Type', description: 'Please select an image file.', variant: 'destructive' });
         setSelectedFile(null);
-        event.target.value = ''; // Reset file input
+        event.target.value = '';
         return;
       }
       if (file.size > 5 * 1024 * 1024) { // 5MB limit
         toast({ title: 'File Too Large', description: 'Please select an image smaller than 5MB.', variant: 'destructive' });
         setSelectedFile(null);
-        event.target.value = ''; // Reset file input
+        event.target.value = '';
         return;
       }
       setSelectedFile(file);
@@ -58,30 +57,31 @@ export default function ProfilePage() {
     try {
       const fileExtension = selectedFile.name.split('.').pop();
       const fileName = `avatar.${fileExtension}`;
-      // Path inside the bucket: public/user_id/avatar.ext
-      // The 'public/' prefix is convention if the bucket itself isn't named 'public' but files within are meant for public URL access.
-      // If your bucket is already named 'public', then 'user_id/avatar.ext' is fine.
-      // The RLS policies provided assume the path structure 'public/USER_ID/filename.ext' within the 'avatars' bucket.
       const filePath = `public/${currentUser.id}/${fileName}`;
 
-      // Upload file to Supabase Storage
       const { data: uploadData, error: uploadSupabaseError } = await supabase.storage
-        .from('avatars') // Your bucket name
+        .from('avatars')
         .upload(filePath, selectedFile, {
-          cacheControl: '3600', // Cache for 1 hour
-          upsert: true, // Overwrite if file with same name exists
+          cacheControl: '3600',
+          upsert: true,
         });
 
       if (uploadSupabaseError) {
-        console.error('Error uploading avatar:', uploadSupabaseError);
-        throw new Error(uploadSupabaseError.message || 'Failed to upload avatar to storage.');
+        console.error(
+          'Error uploading avatar. Raw Supabase Error:', uploadSupabaseError,
+          'Name:', (uploadSupabaseError as any)?.name,
+          'Message:', (uploadSupabaseError as any)?.message,
+          'Status:', (uploadSupabaseError as any)?.status,
+          'Stack:', (uploadSupabaseError as any)?.stack,
+          'Error (nested):', (uploadSupabaseError as any)?.error
+        );
+        throw new Error((uploadSupabaseError as any)?.message || (uploadSupabaseError as any)?.error?.message || 'Failed to upload avatar to storage. Check console for details.');
       }
 
       if (!uploadData || !uploadData.path) {
           throw new Error('Avatar upload successful but path not returned from storage.');
       }
 
-      // Get public URL for the uploaded file
       const { data: urlData } = supabase.storage
         .from('avatars')
         .getPublicUrl(uploadData.path);
@@ -92,7 +92,6 @@ export default function ProfilePage() {
       
       const publicAvatarUrl = urlData.publicUrl;
 
-      // Update avatar_url in profiles table
       const { error: profileUpdateError } = await supabase
         .from('profiles')
         .update({ avatar_url: publicAvatarUrl })
@@ -100,19 +99,17 @@ export default function ProfilePage() {
 
       if (profileUpdateError) {
         console.error('Error updating profile avatar_url:', profileUpdateError);
-        // Attempt to remove the just-uploaded file if profile update fails
         await supabase.storage.from('avatars').remove([uploadData.path]);
         throw new Error(profileUpdateError.message || 'Failed to update profile with new avatar.');
       }
 
-      // Update currentUser in AuthContext to reflect change immediately
       const updatedUser = { ...currentUser, avatar: publicAvatarUrl };
-      updateAuthContextUser(updatedUser); // Assuming setCurrentUser updates localStorage too
+      updateAuthContextUser(updatedUser);
 
       toast({ title: 'Success', description: 'Profile picture updated successfully!' });
-      setSelectedFile(null); // Clear selection
+      setSelectedFile(null);
       const fileInput = document.getElementById('avatar-upload-input') as HTMLInputElement | null;
-      if (fileInput) fileInput.value = ''; // Reset file input visually
+      if (fileInput) fileInput.value = '';
 
     } catch (error: any) {
       console.error('Avatar upload process error:', error);
@@ -126,7 +123,6 @@ export default function ProfilePage() {
 
   if (loading) return <div className="flex justify-center items-center h-64"><Loader2 className="h-8 w-8 animate-spin text-primary" /> <p className="ml-2">Loading profile...</p></div>;
   if (!currentUser) {
-    // Should be handled by layout, but as a fallback
     router.push('/auth/login');
     return null;
   }
