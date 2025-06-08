@@ -13,7 +13,7 @@ const navItems: NavItem[] = [
   { href: '/dashboard', label: 'Dashboard', icon: LayoutDashboard, teamViewable: true },
   { href: '/tasks', label: 'Tasks', icon: ListChecks, teamViewable: true },
   { href: '/notes', label: 'My Notes', icon: BookUser, teamViewable: true, userSpecific: true, activePathPrefix: '/notes' },
-  // { href: '/members', label: 'Team Members', icon: UsersIconLucide, teamViewable: true, activePathPrefix: '/members' }, // Removed this line
+  { href: '/members', label: 'Team Members', icon: UsersIconLucide, userSpecific: true, activePathPrefix: '/members' }, // Show for non-admins
   { href: '/admin/projects', label: 'Projects', icon: FolderKanban, adminOnly: true, activePathPrefix: '/admin/projects' },
   { href: '/admin/users', label: 'User Management', icon: UsersIconLucide, adminOnly: true, activePathPrefix: '/admin/users' },
   { href: '/admin/approvals', label: 'Task Approvals', icon: CheckCircle2, adminOnly: true, activePathPrefix: '/admin/approvals' },
@@ -35,8 +35,8 @@ export function AppSidebar() {
     return items
       .filter(item => {
         if (item.adminOnly) return isAdmin;
-        if (item.userSpecific) return !isAdmin; // Show "My Notes" only to non-admins
-        return item.teamViewable || isAdmin;
+        if (item.userSpecific) return !isAdmin; // Handles "My Notes" and "Team Members" for non-admins
+        return item.teamViewable || isAdmin; // Default visibility for other items
       })
       .map((item) => {
         let isItemActive = pathname === item.href;
@@ -62,6 +62,10 @@ export function AppSidebar() {
         }
         // Specific handling for /notes (user's notes)
         if (item.href === '/notes' && (pathname === '/notes' || pathname.startsWith('/notes/'))) {
+            isItemActive = true;
+        }
+         // Specific handling for /members (user's view)
+        if (item.href === '/members' && (pathname === '/members' || pathname.startsWith('/members/'))) {
             isItemActive = true;
         }
 
