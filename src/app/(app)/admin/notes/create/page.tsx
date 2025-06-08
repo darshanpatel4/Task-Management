@@ -124,23 +124,45 @@ export default function CreateNotePage() {
         const notificationsToInsert = values.recipient_user_ids.map(recipientId => ({
           user_id: recipientId,
           message: `You have received a new note from ${currentUser.name}: "${values.title.substring(0, 50)}..."`,
-          link: `/notes#note-${createdNote.id}`, // Link to user's notes page, potentially with an anchor
+          link: `/notes#note-${createdNote.id}`, 
           type: 'new_note_received' as NotificationType,
-          task_id: null, // Not related to a task
-          project_id: null, // Not related to a project
+          task_id: null, 
+          project_id: null, 
           note_id: createdNote.id,
           triggered_by_user_id: currentUser.id,
         }));
         
-        const { error: notificationError } = await supabase
-          .from('notifications')
-          .insert(notificationsToInsert);
-        
-        if (notificationError) {
-          console.error("Error creating 'new_note_received' notifications:", notificationError);
-          toastDescription += ` Recipients notified (with potential errors: ${notificationError.message}).`;
-        } else {
-          toastDescription += ` Recipients have been notified.`;
+        if (notificationsToInsert.length > 0) {
+            const { error: notificationError } = await supabase
+                .from('notifications')
+                .insert(notificationsToInsert);
+            
+            if (notificationError) {
+                 console.error(
+                    "Error creating 'new_note_received' notifications. Raw Error Object:", notificationError,
+                    "Code:", (notificationError as any)?.code, 
+                    "Message:", (notificationError as any)?.message, 
+                    "Details:", (notificationError as any)?.details,
+                    "Hint:", (notificationError as any)?.hint
+                );
+
+                let specificErrorMsg = "Failed to send notifications to recipients.";
+                if ((notificationError as any)?.code === '42501') {
+                    specificErrorMsg = "Failed to send notifications due to database permissions (RLS). Please check 'notifications' table policies for admin inserts of type 'new_note_received'.";
+                } else if ((notificationError as any)?.message) {
+                    specificErrorMsg += ` Error: ${(notificationError as any).message}`;
+                }
+                
+                toastDescription += ` ${specificErrorMsg}`;
+                toast({
+                    title: "Notification Issue",
+                    description: specificErrorMsg,
+                    variant: "destructive",
+                    duration: 7000
+                });
+            } else {
+              toastDescription += ` Recipients have been notified.`;
+            }
         }
       }
 
