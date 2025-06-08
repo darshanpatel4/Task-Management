@@ -17,7 +17,7 @@ import { Loader2, UploadCloud } from 'lucide-react';
 export default function ProfilePage() {
   const { currentUser, loading, setCurrentUser: updateAuthContextUser } = useAuth();
   const router = useRouter();
-  const { toast } = useToast();
+  const { toast, toasts } = useToast(); // Destructure toasts array
 
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [isUploading, setIsUploading] = useState(false);
@@ -67,6 +67,8 @@ export default function ProfilePage() {
       const filePath = `public/${currentUser.id}/${fileName}`;
 
       console.log(`ProfilePage: Uploading to path: ${filePath}`);
+      console.log(`ProfilePage: Current user ID: ${currentUser.id}`);
+
 
       const { data: uploadData, error: uploadSupabaseError } = await supabase.storage
         .from('avatars')
@@ -86,15 +88,16 @@ export default function ProfilePage() {
         );
         
         let errorMessage = (uploadSupabaseError as any)?.message || (uploadSupabaseError as any)?.error?.message || 'Failed to upload avatar to storage. Check console for details.';
+        
+        // Check for specific RLS-like error message
         if (typeof errorMessage === 'string' && errorMessage.includes('invalid input syntax for type uuid: "public"')) {
-          // This is the specific error you're encountering.
-          errorMessage = 'Database RLS Error: Failed to upload avatar. This is due to a misconfigured or conflicting Row Level Security policy on your "avatars" storage bucket. The policy is incorrectly trying to use "public" as a User ID. Please review your Supabase Storage RLS policies for INSERTs into the "avatars" bucket. Ensure they correctly use auth.uid() for ownership and that there are no conflicting policies.';
-          toast({ title: 'Critical: Storage RLS Misconfiguration', description: errorMessage, variant: 'destructive', duration: 20000 });
+          errorMessage = 'Critical: Storage RLS Misconfiguration. Failed to upload avatar due to a Row Level Security policy issue on your "avatars" storage bucket. The policy might be incorrectly trying to use "public" as a User ID. Please review your Supabase Storage RLS policies for INSERTs into the "avatars" bucket. Ensure they correctly use auth.uid() for ownership and that there are no conflicting policies.';
+          toast({ title: 'Critical: Storage RLS Misconfiguration', description: errorMessage, variant: 'destructive', duration: 30000 });
         } else {
            toast({ title: 'Upload Failed', description: errorMessage, variant: 'destructive' });
         }
         setUploadError(errorMessage);
-        throw new Error(errorMessage); // Re-throw to be caught by outer catch if needed, or just return
+        throw new Error(errorMessage); 
       }
 
       if (!uploadData || !uploadData.path) {
@@ -118,7 +121,13 @@ export default function ProfilePage() {
 
       if (profileUpdateError) {
         console.error('Error updating profile avatar_url:', profileUpdateError);
-        await supabase.storage.from('avatars').remove([uploadData.path]);
+        // Attempt to remove the orphaned file from storage
+        try {
+            await supabase.storage.from('avatars').remove([uploadData.path]);
+            console.log('Orphaned avatar file removed from storage:', uploadData.path);
+        } catch (removeError) {
+            console.error('Failed to remove orphaned avatar from storage:', removeError);
+        }
         throw new Error(profileUpdateError.message || 'Failed to update profile with new avatar.');
       }
 
@@ -132,11 +141,17 @@ export default function ProfilePage() {
 
     } catch (error: any) {
       // This catch block will now handle errors thrown from within, including the specific RLS message
-      if (!toast.toasts.find(t => t.title === 'Critical: Storage RLS Misconfiguration' && t.open)) { // Avoid double toast for the RLS error
+      const rlsErrorToastIsOpen = toasts?.find(
+        t => t.title === 'Critical: Storage RLS Misconfiguration' && t.open
+      );
+
+      if (!rlsErrorToastIsOpen) { 
         setUploadError(error.message || 'An unexpected error occurred during the avatar upload process.');
-        // toast({ title: 'Upload Process Error', description: error.message || 'Could not update profile picture.', variant: 'destructive' });
+        // Avoid double-toasting if the specific RLS toast was already shown
+        if (!error.message?.includes('Critical: Storage RLS Misconfiguration')) {
+            toast({ title: 'Upload Process Error', description: error.message || 'Could not update profile picture.', variant: 'destructive' });
+        }
       }
-      // The specific toast for RLS is handled inside the try block now
       console.error('Avatar upload process error (outer catch):', error.message);
     } finally {
       setIsUploading(false);
