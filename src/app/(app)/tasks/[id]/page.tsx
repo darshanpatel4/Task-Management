@@ -21,6 +21,7 @@ import { format, parseISO } from 'date-fns';
 import { CalendarDays, Briefcase, MessageSquare, History, CheckCircle, AlertTriangle, Edit3, Clock, Loader2, XCircle, ThumbsUp, RotateCcw, User as UserIconLucide, Users } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { supabase } from '@/lib/supabaseClient';
+import { sendEmail, getUserDetailsByIds } from '@/actions/sendEmailAction';
 
 const logFormSchema = z.object({
   hoursSpent: z.coerce.number().min(0.1, "Hours spent must be greater than 0.").max(100, "Hours cannot exceed 100."),
@@ -29,7 +30,7 @@ const logFormSchema = z.object({
 
 type LogFormValues = z.infer<typeof logFormSchema>;
 
-interface AssigneeProfileDisplay extends Pick<User, 'id' | 'name' | 'avatar'> {}
+interface AssigneeProfileDisplay extends Pick<User, 'id' | 'name' | 'avatar' | 'email'> {}
 
 export default function TaskDetailPage() {
   const params = useParams();
@@ -39,6 +40,7 @@ export default function TaskDetailPage() {
 
   const [task, setTask] = useState<Task | null>(null);
   const [assigneeDetails, setAssigneeDetails] = useState<AssigneeProfileDisplay[]>([]);
+  const [creatorDetails, setCreatorDetails] = useState<AssigneeProfileDisplay | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [newComment, setNewComment] = useState('');
@@ -66,6 +68,7 @@ export default function TaskDetailPage() {
     setIsLoading(true);
     setError(null);
     setAssigneeDetails([]); 
+    setCreatorDetails(null);
 
     try {
       const { data, error: fetchError } = await supabase
@@ -102,17 +105,22 @@ export default function TaskDetailPage() {
         };
         setTask(fetchedTask);
 
-        if (fetchedTask.assignee_ids && fetchedTask.assignee_ids.length > 0) {
-          const { data: profilesData, error: profilesError } = await supabase
-            .from('profiles')
-            .select('id, full_name, avatar_url')
-            .in('id', fetchedTask.assignee_ids);
+        const userIdsToFetch = new Set<string>();
+        if (fetchedTask.assignee_ids) {
+          fetchedTask.assignee_ids.forEach(id => userIdsToFetch.add(id));
+        }
+        if (fetchedTask.user_id) {
+          userIdsToFetch.add(fetchedTask.user_id);
+        }
 
-          if (profilesError) {
-            console.warn(`Error fetching profiles for assignees ${fetchedTask.assignee_ids.join(', ')}:`, profilesError);
-            setAssigneeDetails(fetchedTask.assignee_ids.map(id => ({ id, name: 'N/A (Profile Error)', avatar: undefined })));
-          } else if (profilesData) {
-            setAssigneeDetails(profilesData.map(p => ({ id: p.id, name: p.full_name || 'N/A', avatar: p.avatar_url || undefined })));
+        if (userIdsToFetch.size > 0) {
+          const userProfiles = await getUserDetailsByIds(Array.from(userIdsToFetch));
+          const assignees = userProfiles.filter(up => fetchedTask.assignee_ids?.includes(up.id));
+          const creator = userProfiles.find(up => up.id === fetchedTask.user_id);
+          
+          setAssigneeDetails(assignees.map(p => ({ id: p.id, name: p.name || 'N/A', avatar: p.avatar, email: p.email || '' })));
+          if (creator) {
+            setCreatorDetails({ id: creator.id, name: creator.name || 'N/A', avatar: creator.avatar, email: creator.email || '' });
           }
         }
 
@@ -182,19 +190,19 @@ export default function TaskDetailPage() {
       toast({ title: 'Success', description: 'Comment added.' });
 
       if (currentUser && supabase) {
-        const recipients = new Set<string>();
-        // Notify other assignees
-        (task.assignee_ids || []).forEach(id => {
-          if (id !== currentUser.id) recipients.add(id);
+        const recipientsIds = new Set<string>();
+        assigneeDetails.forEach(ad => {
+          if (ad.id !== currentUser.id) recipientsIds.add(ad.id);
         });
-        // Notify task creator if not the commenter and not already in assignees set for this notification
-        if (task.user_id && task.user_id !== currentUser.id && !recipients.has(task.user_id)) {
-            recipients.add(task.user_id);
+        if (creatorDetails && creatorDetails.id !== currentUser.id) {
+            recipientsIds.add(creatorDetails.id);
         }
+        
+        const recipientUserDetails = await getUserDetailsByIds(Array.from(recipientsIds));
 
-        const notificationsToInsert = Array.from(recipients)
-          .map(recipientId => ({
-            user_id: recipientId,
+        const notificationsToInsert = recipientUserDetails
+          .map(recipient => ({
+            user_id: recipient.id,
             message: `${currentUser.name} commented on task "${task.title}": "${newCommentObject.comment.substring(0, 50)}..."`,
             link: `/tasks/${task.id}`,
             type: 'new_comment_on_task' as NotificationType,
@@ -216,6 +224,23 @@ export default function TaskDetailPage() {
             }
             console.error("TaskDetailPage: Error creating 'new_comment_on_task' notifications. Code:", notificationError.code, "Message:", notificationError.message, "Details:", notificationError.details, "Hint:", notificationError.hint, "Full Error:", notificationError);
             toast({ title: "Notification Error", description: toastMessage, variant: "default", duration: 7000 });
+          }
+        }
+        // Send Emails for new comment
+        for (const recipient of recipientUserDetails) {
+          if (recipient.email) {
+            await sendEmail({
+              to: recipient.email,
+              recipientName: recipient.name,
+              subject: `New Comment on Task: ${task.title}`,
+              htmlBody: `
+                <p>Hello ${recipient.name || 'User'},</p>
+                <p>${currentUser.name} added a comment to the task "${task.title}":</p>
+                <p><em>"${newCommentObject.comment}"</em></p>
+                <p>You can view the task and comment here: <a href="${process.env.NEXT_PUBLIC_APP_URL}/tasks/${task.id}">View Task</a></p>
+                <p>Thank you,<br/>TaskFlow AI Team</p>
+              `,
+            });
           }
         }
       }
@@ -328,18 +353,15 @@ export default function TaskDetailPage() {
       setTask(prevTask => prevTask ? { ...prevTask, status: newStatus } : null); 
       toast({ title: "Status Updated", description: `Task status changed to ${newStatus}.` });
 
-      // Notification logic:
+      // Notification logic & Email Sending:
       if (newStatus === 'Completed' && !isAdmin && currentUser && supabase) { 
         console.log(`TaskDetailPage: User ${currentUser.id} marked task ${task.id} as completed. Notifying admins.`);
-        const { data: adminProfiles, error: adminFetchError } = await supabase
-          .from('profiles')
-          .select('id')
-          .eq('role', 'Admin');
+        const adminUsers = await getUserDetailsByIds(
+            (await supabase.from('profiles').select('id').eq('role', 'Admin')).data?.map(p => p.id) || []
+        );
 
-        if (adminFetchError) {
-          console.error('TaskDetailPage: Error fetching admin profiles for notification:', adminFetchError);
-        } else if (adminProfiles && adminProfiles.length > 0) {
-          const notificationsToInsert = adminProfiles.map(admin => ({
+        if (adminUsers.length > 0) {
+          const notificationsToInsert = adminUsers.map(admin => ({
             user_id: admin.id, 
             message: `${currentUser.name} marked task "${task.title}" as completed. It's ready for approval.`,
             link: `/admin/approvals`, 
@@ -366,40 +388,82 @@ export default function TaskDetailPage() {
               toast({ title: "Admins Notified", description: "Admins have been notified that the task is ready for approval.", variant: "default" });
             }
           }
+          // Send Emails
+          for (const admin of adminUsers) {
+            if (admin.email) {
+              await sendEmail({
+                to: admin.email,
+                recipientName: admin.name,
+                subject: `Task Ready for Approval: ${task.title}`,
+                htmlBody: `
+                  <p>Hello ${admin.name || 'Admin'},</p>
+                  <p>The task "${task.title}" has been marked as completed by ${currentUser.name} and is now ready for your approval.</p>
+                  <p>You can review the task here: <a href="${process.env.NEXT_PUBLIC_APP_URL}/admin/approvals">View Approvals</a></p>
+                  <p>Thank you,<br/>TaskFlow AI Team</p>
+                `,
+              });
+            }
+          }
         }
-      } else if (newStatus === 'Approved' && isAdmin && currentUser && task.assignee_ids && task.assignee_ids.length > 0 && supabase) { 
-        console.log(`TaskDetailPage: Admin ${currentUser.id} approved task "${task.title}". Assignees to notify:`, task.assignee_ids);
-        const notificationsToInsert = task.assignee_ids.map(assigneeId => ({
-            user_id: assigneeId,
+      } else if (newStatus === 'Approved' && isAdmin && currentUser && assigneeDetails.length > 0 && supabase) { 
+        const notificationsToInsert = assigneeDetails.map(assignee => ({
+            user_id: assignee.id,
             message: `Your task "${task.title}" has been approved by ${currentUser.name}.`,
             link: `/tasks/${task.id}`,
             type: 'task_approved' as NotificationType,
             task_id: task.id,
             triggered_by_user_id: currentUser.id,
         }));
-        console.log("TaskDetailPage: Notifications to insert for approval (from detail page):", notificationsToInsert);
         if (notificationsToInsert.length > 0) {
             const { error: notificationError } = await supabase.from('notifications').insert(notificationsToInsert);
-            if (notificationError) {
-                console.error("TaskDetailPage: Error creating 'task_approved' notifications (admin approve). Code:", notificationError.code, "Message:", notificationError.message, "Details:", notificationError.details, "Hint:", notificationError.hint, "Full Error:", notificationError);
-            }
+            if (notificationError) console.error("TaskDetailPage: Error creating 'task_approved' notifications (admin approve).", notificationError);
         }
-      } else if (newStatus === 'In Progress' && task.status === 'Completed' && isAdmin && currentUser && task.assignee_ids && task.assignee_ids.length > 0 && supabase) {
-        console.log(`TaskDetailPage: Admin ${currentUser.id} rejected task "${task.title}". Assignees to notify:`, task.assignee_ids);
-        const notificationsToInsert = task.assignee_ids.map(assigneeId => ({
-            user_id: assigneeId,
+        // Send Emails
+        for (const assignee of assigneeDetails) {
+          if (assignee.email) {
+            await sendEmail({
+              to: assignee.email,
+              recipientName: assignee.name,
+              subject: `Task Approved: ${task.title}`,
+              htmlBody: `
+                <p>Hello ${assignee.name || 'User'},</p>
+                <p>Your task "${task.title}" has been approved by ${currentUser.name}.</p>
+                <p>You can view the task details here: <a href="${process.env.NEXT_PUBLIC_APP_URL}/tasks/${task.id}">View Task</a></p>
+                <p>Great job!</p>
+                <p>Thank you,<br/>TaskFlow AI Team</p>
+              `,
+            });
+          }
+        }
+      } else if (newStatus === 'In Progress' && task.status === 'Completed' && isAdmin && currentUser && assigneeDetails.length > 0 && supabase) {
+        const notificationsToInsert = assigneeDetails.map(assignee => ({
+            user_id: assignee.id,
             message: `Your task "${task.title}" was reviewed by ${currentUser.name} and moved back to 'In Progress'.`,
             link: `/tasks/${task.id}`,
             type: 'task_rejected' as NotificationType,
             task_id: task.id,
             triggered_by_user_id: currentUser.id,
         }));
-        console.log("TaskDetailPage: Notifications to insert for rejection (from detail page):", notificationsToInsert);
         if (notificationsToInsert.length > 0) {
             const { error: notificationError } = await supabase.from('notifications').insert(notificationsToInsert);
-            if (notificationError) {
-                console.error("TaskDetailPage: Error creating 'task_rejected' notifications (admin reject). Code:", notificationError.code, "Message:", notificationError.message, "Details:", notificationError.details, "Hint:", notificationError.hint, "Full Error:", notificationError);
-            }
+            if (notificationError) console.error("TaskDetailPage: Error creating 'task_rejected' notifications (admin reject).", notificationError);
+        }
+         // Send Emails
+        for (const assignee of assigneeDetails) {
+          if (assignee.email) {
+            await sendEmail({
+              to: assignee.email,
+              recipientName: assignee.name,
+              subject: `Task Update: ${task.title} - Requires Attention`,
+              htmlBody: `
+                <p>Hello ${assignee.name || 'User'},</p>
+                <p>Your task "${task.title}" was reviewed by ${currentUser.name} and has been moved back to 'In Progress'.</p>
+                <p>Please review any comments or feedback and continue working on it.</p>
+                <p>You can view the task details here: <a href="${process.env.NEXT_PUBLIC_APP_URL}/tasks/${task.id}">View Task</a></p>
+                <p>Thank you,<br/>TaskFlow AI Team</p>
+              `,
+            });
+          }
         }
       }
 
@@ -649,3 +713,4 @@ export default function TaskDetailPage() {
     </div>
   );
 }
+

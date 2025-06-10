@@ -35,6 +35,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { ScrollArea } from '@/components/ui/scroll-area';
+import { sendEmail, getUserDetailsByIds } from '@/actions/sendEmailAction';
 
 const noteFormSchema = z.object({
   title: z.string().min(3, { message: 'Title must be at least 3 characters.' }).max(150, { message: 'Title too long.'}),
@@ -50,7 +51,7 @@ export default function CreateNotePage() {
   const router = useRouter();
   const { toast } = useToast();
 
-  const [allUsers, setAllUsers] = useState<Pick<User, 'id' | 'name'>[]>([]);
+  const [allUsers, setAllUsers] = useState<Pick<User, 'id' | 'name' | 'email'>[]>([]);
   const [isLoadingData, setIsLoadingData] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [dataError, setDataError] = useState<string | null>(null);
@@ -77,10 +78,10 @@ export default function CreateNotePage() {
       try {
         const { data, error } = await supabase
           .from('profiles')
-          .select('id, full_name')
+          .select('id, full_name, email')
           .order('full_name', { ascending: true });
         if (error) throw error;
-        setAllUsers(data?.map(u => ({ id: u.id, name: u.full_name || 'Unnamed User' })) || []);
+        setAllUsers(data?.map(u => ({ id: u.id, name: u.full_name || 'Unnamed User', email: u.email || '' })) || []);
       } catch (error: any) {
         setDataError(error.message || 'Failed to load users.');
         toast({ title: 'Error Loading Users', description: error.message, variant: 'destructive' });
@@ -126,8 +127,10 @@ export default function CreateNotePage() {
       let toastDescription = `Note "${values.title}" has been successfully sent.`;
       
       if (createdNote && values.recipient_user_ids.length > 0) {
-        const notificationsToInsert = values.recipient_user_ids.map(recipientId => ({
-          user_id: recipientId,
+        const recipientUserDetails = allUsers.filter(u => values.recipient_user_ids.includes(u.id));
+
+        const notificationsToInsert = recipientUserDetails.map(recipient => ({
+          user_id: recipient.id,
           message: `You have received a new note from ${currentUser.name}: "${values.title.substring(0, 50)}..."`,
           link: `/notes#note-${createdNote.id}`, 
           type: 'new_note_received' as NotificationType,
@@ -170,6 +173,26 @@ export default function CreateNotePage() {
                 });
             } else {
               toastDescription += ` Recipients have been notified.`;
+            }
+        }
+        // Send Emails
+        for (const recipient of recipientUserDetails) {
+            if (recipient.email) {
+              await sendEmail({
+                to: recipient.email,
+                recipientName: recipient.name,
+                subject: `New Note from ${currentUser.name}: ${values.title}`,
+                htmlBody: `
+                  <p>Hello ${recipient.name || 'User'},</p>
+                  <p>You have received a new note from ${currentUser.name} regarding: <strong>${values.title}</strong></p>
+                  <p><strong>Content:</strong></p>
+                  <div style="padding: 10px; border: 1px solid #eee; background: #f9f9f9;">
+                    <pre style="white-space: pre-wrap; font-family: inherit;">${values.content}</pre>
+                  </div>
+                  <p>You can view this note in the TaskFlow AI application: <a href="${process.env.NEXT_PUBLIC_APP_URL}/notes#note-${createdNote.id}">View Note</a></p>
+                  <p>Thank you,<br/>TaskFlow AI Team</p>
+                `,
+              });
             }
         }
       }
@@ -318,3 +341,4 @@ export default function CreateNotePage() {
     </Card>
   );
 }
+

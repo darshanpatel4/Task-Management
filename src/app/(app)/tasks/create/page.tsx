@@ -45,6 +45,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { Checkbox } from '@/components/ui/checkbox';
+import { sendEmail, getUserDetailsByIds } from '@/actions/sendEmailAction';
 
 
 const taskPriorities: TaskPriority[] = ['Low', 'Medium', 'High'];
@@ -67,7 +68,7 @@ export default function CreateTaskPage() {
   const router = useRouter();
   const { toast } = useToast();
 
-  const [allUsers, setAllUsers] = useState<Pick<User, 'id' | 'name'>[]>([]);
+  const [allUsers, setAllUsers] = useState<Pick<User, 'id' | 'name' | 'email'>[]>([]);
   const [projects, setProjects] = useState<Pick<Project, 'id' | 'name'>[]>([]);
   const [isLoadingData, setIsLoadingData] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -99,14 +100,14 @@ export default function CreateTaskPage() {
       setDataError(null);
       try {
         const [usersResponse, projectsResponse] = await Promise.all([
-          supabase.from('profiles').select('id, full_name').order('full_name', { ascending: true }),
+          supabase.from('profiles').select('id, full_name, email').order('full_name', { ascending: true }),
           supabase.from('projects').select('id, name').order('name', { ascending: true })
         ]);
 
         if (usersResponse.error) throw usersResponse.error;
         if (projectsResponse.error) throw projectsResponse.error;
 
-        setAllUsers(usersResponse.data?.map(u => ({ id: u.id, name: u.full_name || 'Unnamed User' })) || []);
+        setAllUsers(usersResponse.data?.map(u => ({ id: u.id, name: u.full_name || 'Unnamed User', email: u.email || '' })) || []);
         setProjects(projectsResponse.data || []);
 
       } catch (error: any) {
@@ -170,13 +171,15 @@ export default function CreateTaskPage() {
       let toastDescription = `Task "${values.title}" has been successfully created.`;
       
       if (createdTaskData && values.assignee_ids && values.assignee_ids.length > 0 && currentUser) {
-        const notificationsToInsert = values.assignee_ids.map(assigneeId => ({
-            user_id: assigneeId, // Recipient
+        const assignedUserDetails = allUsers.filter(u => values.assignee_ids?.includes(u.id));
+
+        const notificationsToInsert = assignedUserDetails.map(assignee => ({
+            user_id: assignee.id, // Recipient
             message: `${currentUser.name} assigned you a new task: "${values.title}".`,
             link: `/tasks/${createdTaskData.id}`,
-            type: 'task_assigned' as NotificationType, // Ensured type
+            type: 'task_assigned' as NotificationType, 
             task_id: createdTaskData.id,
-            triggered_by_user_id: currentUser.id, // The admin performing the action
+            triggered_by_user_id: currentUser.id, 
         }));
         
         if (notificationsToInsert.length > 0) {
@@ -205,6 +208,27 @@ export default function CreateTaskPage() {
             } else {
                  toastDescription += ` Assignees have been notified.`;
             }
+        }
+
+        // Send emails to assigned users
+        for (const assignee of assignedUserDetails) {
+          if (assignee.email) {
+            await sendEmail({
+              to: assignee.email,
+              recipientName: assignee.name,
+              subject: `New Task Assigned: ${values.title}`,
+              htmlBody: `
+                <p>Hello ${assignee.name || 'User'},</p>
+                <p>You have been assigned a new task by ${currentUser.name}:</p>
+                <p><strong>Task:</strong> ${values.title}</p>
+                <p><strong>Description:</strong> ${values.description}</p>
+                <p><strong>Due Date:</strong> ${format(values.dueDate, 'PPP')}</p>
+                <p><strong>Priority:</strong> ${values.priority}</p>
+                <p>You can view the task details here: <a href="${process.env.NEXT_PUBLIC_APP_URL}/tasks/${createdTaskData.id}">View Task</a></p>
+                <p>Thank you,<br/>TaskFlow AI Team</p>
+              `,
+            });
+          }
         }
       }
 
@@ -297,7 +321,7 @@ export default function CreateTaskPage() {
             <AlertTriangle className="mr-2 h-8 w-8" />
             <p className="font-semibold">Error loading data</p>
             <p>{dataError}</p>
-             <Button onClick={() => { setIsLoadingData(true); useEffect(() => { async function fetchData() { if (!supabase || !isAdmin) { setIsLoadingData(false); if (!isAdmin) setDataError("Access Denied. You must be an admin to create tasks."); else setDataError("Supabase client not available."); return; } setIsLoadingData(true); setDataError(null); try { const [usersResponse, projectsResponse] = await Promise.all([ supabase.from('profiles').select('id, full_name').order('full_name', { ascending: true }), supabase.from('projects').select('id, name').order('name', { ascending: true }) ]); if (usersResponse.error) throw usersResponse.error; if (projectsResponse.error) throw projectsResponse.error; setAllUsers(usersResponse.data?.map(u => ({ id: u.id, name: u.full_name || 'Unnamed User' })) || []); setProjects(projectsResponse.data || []); } catch (error: any) { const displayMessage = error.message || error.details || 'Failed to load initial data for task creation.'; setDataError(displayMessage); toast({ title: 'Error Loading Data', description: displayMessage, variant: 'destructive', }); } finally { setIsLoadingData(false); } } fetchData(); }, [isAdmin, toast]); }} variant="outline" size="sm" className="mt-4">Try Again</Button>
+             <Button onClick={() => { setIsLoadingData(true); useEffect(() => { async function fetchData() { if (!supabase || !isAdmin) { setIsLoadingData(false); if (!isAdmin) setDataError("Access Denied. You must be an admin to create tasks."); else setDataError("Supabase client not available."); return; } setIsLoadingData(true); setDataError(null); try { const [usersResponse, projectsResponse] = await Promise.all([ supabase.from('profiles').select('id, full_name, email').order('full_name', { ascending: true }), supabase.from('projects').select('id, name').order('name', { ascending: true }) ]); if (usersResponse.error) throw usersResponse.error; if (projectsResponse.error) throw projectsResponse.error; setAllUsers(usersResponse.data?.map(u => ({ id: u.id, name: u.full_name || 'Unnamed User', email: u.email || '' })) || []); setProjects(projectsResponse.data || []); } catch (error: any) { const displayMessage = error.message || error.details || 'Failed to load initial data for task creation.'; setDataError(displayMessage); toast({ title: 'Error Loading Data', description: displayMessage, variant: 'destructive', }); } finally { setIsLoadingData(false); } } fetchData(); }, [isAdmin, toast]); }} variant="outline" size="sm" className="mt-4">Try Again</Button>
           </div>
         )}
         {!isLoadingData && !dataError && (

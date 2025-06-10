@@ -13,10 +13,12 @@ import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { useToast } from '@/hooks/use-toast';
 import { supabase } from '@/lib/supabaseClient';
+import { sendEmail, getUserDetailsByIds } from '@/actions/sendEmailAction';
 
 interface AssigneeDisplayInfo {
   id: string;
   name: string;
+  email?: string;
 }
 
 export default function ApprovalsPage() {
@@ -59,20 +61,12 @@ export default function ApprovalsPage() {
       });
 
       if (allAssigneeIds.size > 0) {
-        const { data: profilesData, error: profilesError } = await supabase
-          .from('profiles')
-          .select('id, full_name')
-          .in('id', Array.from(allAssigneeIds));
-
-        if (profilesError) {
-          console.warn('Could not fetch assignee profiles for approvals page:', profilesError);
-        } else {
-          const newAssigneeDetailsMap: Record<string, AssigneeDisplayInfo> = {};
-          (profilesData || []).forEach(profile => {
-            newAssigneeDetailsMap[profile.id] = { id: profile.id, name: profile.full_name || 'N/A' };
-          });
-          setAssigneeDetailsMap(newAssigneeDetailsMap);
-        }
+        const userProfiles = await getUserDetailsByIds(Array.from(allAssigneeIds));
+        const newAssigneeDetailsMap: Record<string, AssigneeDisplayInfo> = {};
+        userProfiles.forEach(profile => {
+            newAssigneeDetailsMap[profile.id] = { id: profile.id, name: profile.name || 'N/A', email: profile.email || '' };
+        });
+        setAssigneeDetailsMap(newAssigneeDetailsMap);
       }
 
       const mappedTasks: Task[] = (tasksData || []).map(task => ({
@@ -179,8 +173,10 @@ export default function ApprovalsPage() {
       let toastDescription = `Task "${taskToNotify.title}" has been approved.`;
 
       if (taskAssigneeIds && taskAssigneeIds.length > 0 && currentUser) {
-        const notificationsToInsert = taskAssigneeIds.map(assigneeId => ({
-            user_id: assigneeId,
+        const recipientUserDetails = await getUserDetailsByIds(taskAssigneeIds);
+        
+        const notificationsToInsert = recipientUserDetails.map(assignee => ({
+            user_id: assignee.id,
             message: `Your task "${taskToNotify.title}" has been approved by ${currentUser.name}!`,
             type: 'task_approved' as const,
             link: `/tasks/${taskId}`,
@@ -200,6 +196,24 @@ export default function ApprovalsPage() {
             } else {
                  toastDescription += " Assignees have been notified.";
             }
+        }
+        // Send Emails
+        for (const assignee of recipientUserDetails) {
+          if (assignee.email) {
+            await sendEmail({
+              to: assignee.email,
+              recipientName: assignee.name,
+              subject: `Task Approved: ${taskToNotify.title}`,
+              htmlBody: `
+                <p>Hello ${assignee.name || 'User'},</p>
+                <p>Your task "${taskToNotify.title}" has been approved by ${currentUser.name}.</p>
+                <p><strong>Due Date:</strong> ${taskToNotify.dueDate ? format(parseISO(taskToNotify.dueDate), 'PPP') : 'N/A'}</p>
+                <p>You can view the task details here: <a href="${process.env.NEXT_PUBLIC_APP_URL}/tasks/${taskId}">View Task</a></p>
+                <p>Great job!</p>
+                <p>Thank you,<br/>TaskFlow AI Team</p>
+              `,
+            });
+          }
         }
       }
       toast({ title: "Task Approved", description: toastDescription});
@@ -234,8 +248,10 @@ export default function ApprovalsPage() {
       let toastDescription = `Task "${taskToNotify.title}" has been sent back to 'In Progress'.`;
 
       if (taskAssigneeIds && taskAssigneeIds.length > 0 && currentUser) {
-        const notificationsToInsert = taskAssigneeIds.map(assigneeId => ({
-            user_id: assigneeId,
+        const recipientUserDetails = await getUserDetailsByIds(taskAssigneeIds);
+
+        const notificationsToInsert = recipientUserDetails.map(assignee => ({
+            user_id: assignee.id,
             message: `Your task "${taskToNotify.title}" was reviewed by ${currentUser.name} and moved back to 'In Progress'.`,
             type: 'task_rejected' as const,
             link: `/tasks/${taskId}`,
@@ -255,6 +271,23 @@ export default function ApprovalsPage() {
             } else {
                  toastDescription += " Assignees have been notified.";
             }
+        }
+        // Send Emails
+        for (const assignee of recipientUserDetails) {
+          if (assignee.email) {
+            await sendEmail({
+              to: assignee.email,
+              recipientName: assignee.name,
+              subject: `Task Update: ${taskToNotify.title} - Requires Attention`,
+              htmlBody: `
+                <p>Hello ${assignee.name || 'User'},</p>
+                <p>Your task "${taskToNotify.title}" was reviewed by ${currentUser.name} and has been moved back to 'In Progress'.</p>
+                <p>Please review any comments or feedback and continue working on it.</p>
+                <p>You can view the task details here: <a href="${process.env.NEXT_PUBLIC_APP_URL}/tasks/${taskId}">View Task</a></p>
+                <p>Thank you,<br/>TaskFlow AI Team</p>
+              `,
+            });
+          }
         }
       }
       toast({ title: "Task Rejected", description: toastDescription, variant: "default"});
@@ -346,3 +379,4 @@ export default function ApprovalsPage() {
     </div>
   );
 }
+

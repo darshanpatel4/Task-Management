@@ -38,6 +38,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { ScrollArea } from '@/components/ui/scroll-area';
+import { sendEmail, getUserDetailsByIds } from '@/actions/sendEmailAction';
 
 const taskPriorities: TaskPriority[] = ['Low', 'Medium', 'High'];
 const editableTaskStatuses: TaskStatus[] = ['Pending', 'In Progress', 'Completed', 'Approved'];
@@ -63,7 +64,7 @@ export default function EditTaskPage() {
 
   const [task, setTask] = useState<Task | null>(null);
   const [originalAssigneeIds, setOriginalAssigneeIds] = useState<string[]>([]);
-  const [allUsers, setAllUsers] = useState<Pick<User, 'id' | 'name'>[]>([]);
+  const [allUsers, setAllUsers] = useState<Pick<User, 'id' | 'name' | 'email'>[]>([]);
   const [projects, setProjects] = useState<Pick<Project, 'id' | 'name'>[]>([]);
   const [isLoadingData, setIsLoadingData] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -99,7 +100,7 @@ export default function EditTaskPage() {
     try {
       const [taskResponse, usersResponse, projectsResponse] = await Promise.all([
         supabase.from('tasks').select('*').eq('id', taskId).single(),
-        supabase.from('profiles').select('id, full_name').order('full_name', { ascending: true }),
+        supabase.from('profiles').select('id, full_name, email').order('full_name', { ascending: true }),
         supabase.from('projects').select('id, name').order('name', { ascending: true })
       ]);
 
@@ -113,7 +114,7 @@ export default function EditTaskPage() {
       const fetchedTask = taskResponse.data as Task | null;
       setTask(fetchedTask);
       setOriginalAssigneeIds(fetchedTask?.assignee_ids || []);
-      setAllUsers(usersResponse.data?.map(u => ({ id: u.id, name: u.full_name || 'Unnamed User' })) || []);
+      setAllUsers(usersResponse.data?.map(u => ({ id: u.id, name: u.full_name || 'Unnamed User', email: u.email || '' })) || []);
       setProjects(projectsResponse.data || []);
 
       if (fetchedTask) {
@@ -181,12 +182,13 @@ export default function EditTaskPage() {
       const newAssigneeIds = values.assignee_ids || [];
       const currentOriginalAssigneeIds = originalAssigneeIds || [];
       
-      const newlyAssigned = newAssigneeIds.filter(id => !currentOriginalAssigneeIds.includes(id));
-      // const unassigned = currentOriginalAssigneeIds.filter(id => !newAssigneeIds.includes(id)); // For future "unassigned" notifications
+      const newlyAssignedUserIds = newAssigneeIds.filter(id => !currentOriginalAssigneeIds.includes(id));
+      
+      if (newlyAssignedUserIds.length > 0 && currentUser) {
+        const newlyAssignedUserDetails = allUsers.filter(u => newlyAssignedUserIds.includes(u.id));
 
-      if (newlyAssigned.length > 0 && currentUser) {
-        const notificationsToInsert = newlyAssigned.map(assigneeId => ({
-            user_id: assigneeId,
+        const notificationsToInsert = newlyAssignedUserDetails.map(assignee => ({
+            user_id: assignee.id,
             message: `${currentUser.name} assigned you the task: "${values.title}".`,
             link: `/tasks/${task.id}`,
             type: 'task_assigned' as const,
@@ -194,15 +196,35 @@ export default function EditTaskPage() {
             triggered_by_user_id: currentUser.id,
         }));
         
-        const { error: notificationError } = await supabase
-            .from('notifications')
-            .insert(notificationsToInsert);
-        
-        if (notificationError) {
-          console.error("Error creating assignment notifications on edit:", notificationError);
-          toastDescription += ` New assignees notified (with potential errors).`;
-        } else {
-          toastDescription += ` New assignees have been notified.`;
+        if (notificationsToInsert.length > 0) {
+            const { error: notificationError } = await supabase
+                .from('notifications')
+                .insert(notificationsToInsert);
+            
+            if (notificationError) {
+              console.error("Error creating assignment notifications on edit:", notificationError);
+              toastDescription += ` New assignees notified (with potential errors).`;
+            } else {
+              toastDescription += ` New assignees have been notified.`;
+            }
+        }
+
+        // Send emails to newly assigned users
+        for (const assignee of newlyAssignedUserDetails) {
+          if (assignee.email) {
+            await sendEmail({
+              to: assignee.email,
+              recipientName: assignee.name,
+              subject: `Task Assignment Update: ${values.title}`,
+              htmlBody: `
+                <p>Hello ${assignee.name || 'User'},</p>
+                <p>You have been assigned to the task "${values.title}" by ${currentUser.name}.</p>
+                <p><strong>Due Date:</strong> ${format(values.dueDate, 'PPP')}</p>
+                <p>You can view the task details here: <a href="${process.env.NEXT_PUBLIC_APP_URL}/tasks/${task.id}">View Task</a></p>
+                <p>Thank you,<br/>TaskFlow AI Team</p>
+              `,
+            });
+          }
         }
       }
 
@@ -454,3 +476,4 @@ export default function EditTaskPage() {
     </Card>
   );
 }
+
