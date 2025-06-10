@@ -23,7 +23,7 @@ if (!fromEmailVerified) {
 interface EmailDetails {
   to: string; // Recipient's email address
   subject: string;
-  htmlBody: string;
+  rawContent: string; // Changed from htmlBody to rawContent
   recipientName?: string; // Optional: For personalized greeting
 }
 
@@ -70,20 +70,23 @@ export async function sendEmail(details: EmailDetails): Promise<{ success: boole
     console.log(`To: ${details.to} (${details.recipientName || 'Recipient'})`);
     console.log(`From (intended): ${fromName} <${fromEmailVerified || 'NOT_CONFIGURED@example.com'}>`);
     console.log(`Subject: ${details.subject}`);
+    const simulatedHtmlBody = wrapHtmlContent(details.rawContent, details.subject); // Wrap internally
     console.log("Body (HTML):");
-    console.log(details.htmlBody);
+    console.log(simulatedHtmlBody);
     console.log("*******************************************");
     return { success: false, message: warningMessage };
   }
+
+  const htmlToSend = wrapHtmlContent(details.rawContent, details.subject); // Wrap internally
 
   const msg = {
     to: details.to,
     from: {
         email: fromEmailVerified,
-        name: fromName 
+        name: fromName
     },
     subject: details.subject,
-    html: details.htmlBody,
+    html: htmlToSend, // Use the wrapped content
     // You can add text: 'equivalent plain text content' if needed
   };
 
@@ -106,8 +109,8 @@ export async function sendEmail(details: EmailDetails): Promise<{ success: boole
 
 export { getUserDetailsByIds };
 
-// Basic HTML Email Template Wrapper
-export function wrapHtmlContent(content: string, title: string = "Notification"): string {
+// Basic HTML Email Template Wrapper - NO EXPORT KEYWORD
+function wrapHtmlContent(content: string, title: string = "Notification"): string {
   return `
     <!DOCTYPE html>
     <html lang="en">
@@ -116,14 +119,15 @@ export function wrapHtmlContent(content: string, title: string = "Notification")
       <meta name="viewport" content="width=device-width, initial-scale=1.0">
       <title>${title}</title>
       <style>
-        body { font-family: Arial, sans-serif; margin: 0; padding: 0; background-color: #f4f4f4; }
+        body { font-family: Arial, sans-serif; margin: 0; padding: 0; background-color: #f4f4f4; color: #333; }
         .container { max-width: 600px; margin: 20px auto; background-color: #ffffff; padding: 20px; border-radius: 8px; box-shadow: 0 0 10px rgba(0,0,0,0.1); }
         .header { text-align: center; padding-bottom: 20px; border-bottom: 1px solid #eeeeee; }
-        .header h1 { color: #333333; margin:0; }
+        .header h1 { color: #333333; margin:0; font-size: 24px; }
         .content { padding: 20px 0; color: #555555; line-height: 1.6; }
         .content p { margin: 10px 0; }
         .content strong { color: #333333; }
-        .button { display: inline-block; padding: 10px 20px; margin-top: 20px; background-color: #6699CC; color: #ffffff; text-decoration: none; border-radius: 5px; }
+        .button { display: inline-block; padding: 10px 20px; margin-top: 20px; background-color: #6699CC; color: #ffffff !important; text-decoration: none; border-radius: 5px; font-weight: bold; }
+        .button:hover { background-color: #5588BB; }
         .footer { text-align: center; padding-top: 20px; border-top: 1px solid #eeeeee; font-size: 0.9em; color: #aaaaaa; }
       </style>
     </head>
