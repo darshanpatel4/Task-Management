@@ -35,7 +35,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { sendEmail, wrapHtmlContent } from '@/actions/sendEmailAction';
+import { sendEmail } from '@/actions/sendEmailAction';
 
 const noteFormSchema = z.object({
   title: z.string().min(3, { message: 'Title must be at least 3 characters.' }).max(150, { message: 'Title too long.'}),
@@ -98,7 +98,7 @@ export default function CreateNotePage() {
       const user = allUsers.find(u => u.id === selectedIds[0]);
       return user ? user.name : "1 user selected";
     }
-    return \`\${selectedIds.length} users selected\`;
+    return `${selectedIds.length} users selected`;
   };
 
   async function onSubmit(values: NoteFormValues) {
@@ -124,15 +124,15 @@ export default function CreateNotePage() {
 
       if (noteInsertError) throw noteInsertError;
 
-      let toastDescription = \`Note "\${values.title}" has been successfully sent.\`;
+      let toastDescription = `Note "${values.title}" has been successfully sent.`;
       
       if (createdNote && values.recipient_user_ids.length > 0) {
         const recipientUserDetails = allUsers.filter(u => values.recipient_user_ids.includes(u.id));
 
         const notificationsToInsert = recipientUserDetails.map(recipient => ({
           user_id: recipient.id,
-          message: \`You have received a new note from \${currentUser.name}: "\${values.title.substring(0, 50)}..."\`,
-          link: \`/notes#note-\${createdNote.id}\`, 
+          message: `You have received a new note from ${currentUser.name}: "${values.title.substring(0, 50)}..."`,
+          link: `/notes#note-${createdNote.id}`, 
           type: 'new_note_received' as NotificationType,
           task_id: null, 
           project_id: null, 
@@ -161,10 +161,10 @@ export default function CreateNotePage() {
                     specificErrorMsg = "Failed to send notifications: The 'note_id' column is missing in the 'notifications' table. Please run the database migration to add it.";
                 }
                  else if ((notificationError as any)?.message) {
-                    specificErrorMsg += \` Error: \${(notificationError as any).message}\`;
+                    specificErrorMsg += ` Error: ${(notificationError as any).message}`;
                 }
                 
-                toastDescription += \` \${specificErrorMsg}\`;
+                toastDescription += ` ${specificErrorMsg}`;
                 toast({
                     title: "Notification Issue",
                     description: specificErrorMsg,
@@ -172,28 +172,28 @@ export default function CreateNotePage() {
                     duration: 7000
                 });
             } else {
-              toastDescription += \` Recipients have been notified.\`;
+              toastDescription += ` Recipients have been notified.`;
             }
         }
 
         for (const recipient of recipientUserDetails) {
             if (recipient.email) {
-               const emailHtmlContent = \`
-                  <p>Hello \${recipient.name || 'User'},</p>
-                  <p>You have received a new note from <strong>\${currentUser.name}</strong> regarding: "<strong>\${values.title}</strong>"</p>
-                  <p><strong>Category:</strong> \${values.category}</p>
+               const emailRawContent = `
+                  <p>Hello ${recipient.name || 'User'},</p>
+                  <p>You have received a new note from <strong>${currentUser.name}</strong> regarding: "<strong>${values.title}</strong>"</p>
+                  <p><strong>Category:</strong> ${values.category}</p>
                   <p><strong>Content:</strong></p>
                   <div style="padding: 10px; border: 1px solid #eee; background: #f9f9f9; border-radius: 4px; margin-top: 5px;">
-                    <pre style="white-space: pre-wrap; font-family: inherit; margin: 0;">\${values.content}</pre>
+                    <pre style="white-space: pre-wrap; font-family: inherit; margin: 0;">${values.content}</pre>
                   </div>
                   <p>You can view this note in the TaskFlow AI application by clicking the button below:</p>
-                  <a href="\${process.env.NEXT_PUBLIC_APP_URL}/notes#note-\${createdNote.id}" class="button">View Note</a>
-                \`;
+                  <a href="${process.env.NEXT_PUBLIC_APP_URL}/notes#note-${createdNote.id}" class="button">View Note</a>
+                `;
               await sendEmail({
                 to: recipient.email,
                 recipientName: recipient.name,
-                subject: \`New Note from \${currentUser.name}: \${values.title}\`,
-                htmlBody: wrapHtmlContent(emailHtmlContent, \`New Note: \${values.title}\`),
+                subject: `New Note from ${currentUser.name}: ${values.title}`,
+                rawContent: emailRawContent,
               });
             }
         }

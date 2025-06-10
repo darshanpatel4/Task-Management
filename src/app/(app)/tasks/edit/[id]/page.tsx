@@ -38,7 +38,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { sendEmail, wrapHtmlContent } from '@/actions/sendEmailAction';
+import { sendEmail } from '@/actions/sendEmailAction';
 
 const taskPriorities: TaskPriority[] = ['Low', 'Medium', 'High'];
 const editableTaskStatuses: TaskStatus[] = ['Pending', 'In Progress', 'Completed', 'Approved'];
@@ -222,7 +222,7 @@ export default function EditTaskPage() {
               to: assignee.email,
               recipientName: assignee.name,
               subject: `Task Assignment Update: ${values.title}`,
-              htmlBody: wrapHtmlContent(emailHtmlContent, `Task Update: ${values.title}`),
+              rawContent: emailHtmlContent,
             });
           }
         }

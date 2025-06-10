@@ -44,7 +44,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
-import { sendEmail, wrapHtmlContent } from '@/actions/sendEmailAction';
+import { sendEmail } from '@/actions/sendEmailAction';
 
 
 const taskPriorities: TaskPriority[] = ['Low', 'Medium', 'High'];
@@ -226,7 +226,7 @@ export default function CreateTaskPage() {
               to: assignee.email,
               recipientName: assignee.name,
               subject: `New Task Assigned: ${values.title}`,
-              htmlBody: wrapHtmlContent(emailHtmlContent, `New Task: ${values.title}`),
+              rawContent: emailHtmlContent,
             });
           }
         }
