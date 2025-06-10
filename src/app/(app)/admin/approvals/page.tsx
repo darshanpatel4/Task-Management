@@ -13,7 +13,7 @@ import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { useToast } from '@/hooks/use-toast';
 import { supabase } from '@/lib/supabaseClient';
-import { sendEmail, getUserDetailsByIds, wrapHtmlContent } from '@/actions/sendEmailAction';
+import { sendEmail, getUserDetailsByIds } from '@/actions/sendEmailAction';
 
 interface AssigneeDisplayInfo {
   id: string;
@@ -107,7 +107,11 @@ export default function ApprovalsPage() {
       }
       
       console.error(
-        \`Error fetching pending approval tasks. Supabase Code: \${supabaseErrorCode}, Message: \${supabaseErrorMessage}, Details: \${supabaseErrorDetails}, Hint: \${supabaseErrorHint}. Processed display message: \${displayMessage}\`, e
+        "Error fetching pending approval tasks. Supabase Code: " + supabaseErrorCode +
+        ", Message: " + supabaseErrorMessage +
+        ", Details: " + supabaseErrorDetails +
+        ", Hint: " + supabaseErrorHint +
+        ". Processed display message: " + displayMessage, e
       );
       console.error('Full error object:', e);
       setError(displayMessage);
@@ -127,7 +131,7 @@ export default function ApprovalsPage() {
     const names = assigneeIds.map(id => assigneeDetailsMap[id]?.name || 'Loading...').join(', ');
     
     if (names.length > 30 && assigneeIds.length > 1) {
-        return \`\${assigneeIds.length} Assignees\`;
+        return `${assigneeIds.length} Assignees`;
     }
     return names || 'N/A';
   };
@@ -160,7 +164,7 @@ export default function ApprovalsPage() {
         return;
     }
 
-    console.log(\`ApprovalsPage: Approving task "\${taskToNotify.title}" (ID: \${taskId}). Assignees to notify:\`, taskAssigneeIds);
+    console.log(`ApprovalsPage: Approving task "${taskToNotify.title}" (ID: ${taskId}). Assignees to notify:`, taskAssigneeIds);
 
     try {
       const { error: updateError } = await supabase
@@ -170,16 +174,16 @@ export default function ApprovalsPage() {
 
       if (updateError) throw updateError;
 
-      let toastDescription = \`Task "\${taskToNotify.title}" has been approved.\`;
+      let toastDescription = `Task "${taskToNotify.title}" has been approved.`;
 
       if (taskAssigneeIds && taskAssigneeIds.length > 0 && currentUser) {
         const recipientUserDetails = await getUserDetailsByIds(taskAssigneeIds);
         
         const notificationsToInsert = recipientUserDetails.map(assignee => ({
             user_id: assignee.id,
-            message: \`Your task "\${taskToNotify.title}" has been approved by \${currentUser.name}!\`,
+            message: `Your task "${taskToNotify.title}" has been approved by ${currentUser.name}!`,
             type: 'task_approved' as const,
-            link: \`/tasks/\${taskId}\`,
+            link: `/tasks/${taskId}`,
             task_id: taskId,
             triggered_by_user_id: currentUser.id,
         }));
@@ -200,19 +204,19 @@ export default function ApprovalsPage() {
 
         for (const assignee of recipientUserDetails) {
           if (assignee.email) {
-             const emailHtmlContent = \`
-                <p>Hello \${assignee.name || 'User'},</p>
-                <p>Your task "<strong>\${taskToNotify.title}</strong>" has been approved by \${currentUser.name}.</p>
-                <p><strong>Due Date:</strong> \${taskToNotify.dueDate ? format(parseISO(taskToNotify.dueDate), 'PPP') : 'N/A'}</p>
+             const emailRawContent = `
+                <p>Hello ${assignee.name || 'User'},</p>
+                <p>Your task "<strong>${taskToNotify.title}</strong>" has been approved by ${currentUser.name}.</p>
+                <p><strong>Due Date:</strong> ${taskToNotify.dueDate ? format(parseISO(taskToNotify.dueDate), 'PPP') : 'N/A'}</p>
                 <p>Great job!</p>
                 <p>You can view the task details by clicking the button below:</p>
-                <a href="\${process.env.NEXT_PUBLIC_APP_URL}/tasks/\${taskId}" class="button">View Task</a>
-              \`;
+                <a href="${process.env.NEXT_PUBLIC_APP_URL}/tasks/${taskId}" class="button">View Task</a>
+              `;
             await sendEmail({
               to: assignee.email,
               recipientName: assignee.name,
-              subject: \`Task Approved: \${taskToNotify.title}\`,
-              htmlBody: wrapHtmlContent(emailHtmlContent, \`Task Approved: \${taskToNotify.title}\`),
+              subject: `Task Approved: ${taskToNotify.title}`,
+              rawContent: emailRawContent,
             });
           }
         }
@@ -221,7 +225,7 @@ export default function ApprovalsPage() {
       fetchPendingApprovalTasks();
     } catch (e: any) {
       const displayMessage = e.message || e.details || 'Could not approve task.';
-      console.error(\`Error approving task. Supabase Code: \${e.code}, Message: \${e.message}, Details: \${e.details}, Hint: \${e.hint}. Full error:\`, e);
+      console.error(`Error approving task. Supabase Code: ${e.code}, Message: ${e.message}, Details: ${e.details}, Hint: ${e.hint}. Full error:`, e);
       toast({ title: "Error Approving Task", description: displayMessage, variant: "destructive"});
     }
   };
@@ -236,7 +240,7 @@ export default function ApprovalsPage() {
         toast({ title: "Error", description: "Task details not found for notification.", variant: "destructive" });
         return;
     }
-    console.log(\`ApprovalsPage: Rejecting task "\${taskToNotify.title}" (ID: \${taskId}). Assignees to notify:\`, taskAssigneeIds);
+    console.log(`ApprovalsPage: Rejecting task "${taskToNotify.title}" (ID: ${taskId}). Assignees to notify:`, taskAssigneeIds);
 
     try {
       const { error: updateError } = await supabase
@@ -246,16 +250,16 @@ export default function ApprovalsPage() {
 
       if (updateError) throw updateError;
 
-      let toastDescription = \`Task "\${taskToNotify.title}" has been sent back to 'In Progress'.\`;
+      let toastDescription = `Task "${taskToNotify.title}" has been sent back to 'In Progress'.`;
 
       if (taskAssigneeIds && taskAssigneeIds.length > 0 && currentUser) {
         const recipientUserDetails = await getUserDetailsByIds(taskAssigneeIds);
 
         const notificationsToInsert = recipientUserDetails.map(assignee => ({
             user_id: assignee.id,
-            message: \`Your task "\${taskToNotify.title}" was reviewed by \${currentUser.name} and moved back to 'In Progress'.\`,
+            message: `Your task "${taskToNotify.title}" was reviewed by ${currentUser.name} and moved back to 'In Progress'.`,
             type: 'task_rejected' as const,
-            link: \`/tasks/\${taskId}\`,
+            link: `/tasks/${taskId}`,
             task_id: taskId,
             triggered_by_user_id: currentUser.id,
         }));
@@ -276,18 +280,18 @@ export default function ApprovalsPage() {
 
         for (const assignee of recipientUserDetails) {
           if (assignee.email) {
-            const emailHtmlContent = \`
-              <p>Hello \${assignee.name || 'User'},</p>
-              <p>Your task "<strong>\${taskToNotify.title}</strong>" was reviewed by \${currentUser.name} and has been moved back to 'In Progress'.</p>
+            const emailRawContent = `
+              <p>Hello ${assignee.name || 'User'},</p>
+              <p>Your task "<strong>${taskToNotify.title}</strong>" was reviewed by ${currentUser.name} and has been moved back to 'In Progress'.</p>
               <p>Please review any comments or feedback and continue working on it.</p>
               <p>You can view the task details by clicking the button below:</p>
-              <a href="\${process.env.NEXT_PUBLIC_APP_URL}/tasks/\${taskId}" class="button">View Task</a>
-            \`;
+              <a href="${process.env.NEXT_PUBLIC_APP_URL}/tasks/${taskId}" class="button">View Task</a>
+            `;
             await sendEmail({
               to: assignee.email,
               recipientName: assignee.name,
-              subject: \`Task Update: \${taskToNotify.title} - Requires Attention\`,
-              htmlBody: wrapHtmlContent(emailHtmlContent, \`Task Update: \${taskToNotify.title}\`),
+              subject: `Task Update: ${taskToNotify.title} - Requires Attention`,
+              rawContent: emailRawContent,
             });
           }
         }
@@ -296,7 +300,7 @@ export default function ApprovalsPage() {
       fetchPendingApprovalTasks();
     } catch (e: any) {
       const displayMessage = e.message || e.details || 'Could not reject task.';
-      console.error(\`Error rejecting task. Supabase Code: \${e.code}, Message: \${e.message}, Details: \${e.details}, Hint: \${e.hint}. Full error:\`, e);
+      console.error(`Error rejecting task. Supabase Code: ${e.code}, Message: ${e.message}, Details: ${e.details}, Hint: ${e.hint}. Full error:`, e);
       toast({ title: "Error Rejecting Task", description: displayMessage, variant: "destructive"});
     }
   };
@@ -312,7 +316,7 @@ export default function ApprovalsPage() {
       <Card>
         <CardHeader>
           <CardTitle>Pending Approval Queue</CardTitle>
-          <CardDescription>{!isLoading && !error && tasks.length > 0 ? \`There are \${tasks.length} tasks awaiting your approval.\` : 'No tasks are currently pending approval or data is loading.'}</CardDescription>
+          <CardDescription>{!isLoading && !error && tasks.length > 0 ? `There are ${tasks.length} tasks awaiting your approval.` : 'No tasks are currently pending approval or data is loading.'}</CardDescription>
         </CardHeader>
         <CardContent>
           {isLoading && (
@@ -350,14 +354,14 @@ export default function ApprovalsPage() {
                   {tasks.map((task) => (
                     <TableRow key={task.id}>
                       <TableCell className="font-medium max-w-xs truncate">
-                         <Link href={\`/tasks/\${task.id}\`} className="hover:underline text-primary">{task.title}</Link>
+                         <Link href={`/tasks/${task.id}`} className="hover:underline text-primary">{task.title}</Link>
                       </TableCell>
                       <TableCell><span>{displayAssigneeNames(task.assignee_ids)}</span></TableCell>
                       <TableCell><span>{task.projectName || 'N/A'}</span></TableCell>
                       <TableCell><span>{task.dueDate ? format(parseISO(task.dueDate), 'MMM d, yyyy') : 'N/A'}</span></TableCell>
                       <TableCell className="text-right">
                         <div className="flex justify-end gap-1">
-                          <Link href={\`/tasks/\${task.id}\`}>
+                          <Link href={`/tasks/${task.id}`}>
                             <Button variant="ghost" size="icon" aria-label="View task details">
                               <Eye className="h-4 w-4" />
                             </Button>
