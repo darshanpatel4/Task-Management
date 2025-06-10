@@ -44,8 +44,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
-import { Checkbox } from '@/components/ui/checkbox';
-import { sendEmail, getUserDetailsByIds } from '@/actions/sendEmailAction';
+import { sendEmail, wrapHtmlContent } from '@/actions/sendEmailAction';
 
 
 const taskPriorities: TaskPriority[] = ['Low', 'Medium', 'High'];
@@ -174,7 +173,7 @@ export default function CreateTaskPage() {
         const assignedUserDetails = allUsers.filter(u => values.assignee_ids?.includes(u.id));
 
         const notificationsToInsert = assignedUserDetails.map(assignee => ({
-            user_id: assignee.id, // Recipient
+            user_id: assignee.id, 
             message: `${currentUser.name} assigned you a new task: "${values.title}".`,
             link: `/tasks/${createdTaskData.id}`,
             type: 'task_assigned' as NotificationType, 
@@ -213,20 +212,21 @@ export default function CreateTaskPage() {
         // Send emails to assigned users
         for (const assignee of assignedUserDetails) {
           if (assignee.email) {
+            const emailHtmlContent = `
+              <p>Hello ${assignee.name || 'User'},</p>
+              <p>You have been assigned a new task by <strong>${currentUser.name}</strong>:</p>
+              <p><strong>Task:</strong> ${values.title}</p>
+              <p><strong>Description:</strong> ${values.description}</p>
+              <p><strong>Due Date:</strong> ${format(values.dueDate, 'PPP')}</p>
+              <p><strong>Priority:</strong> ${values.priority}</p>
+              <p>You can view the task details by clicking the button below:</p>
+              <a href="${process.env.NEXT_PUBLIC_APP_URL}/tasks/${createdTaskData.id}" class="button">View Task</a>
+            `;
             await sendEmail({
               to: assignee.email,
               recipientName: assignee.name,
               subject: `New Task Assigned: ${values.title}`,
-              htmlBody: `
-                <p>Hello ${assignee.name || 'User'},</p>
-                <p>You have been assigned a new task by ${currentUser.name}:</p>
-                <p><strong>Task:</strong> ${values.title}</p>
-                <p><strong>Description:</strong> ${values.description}</p>
-                <p><strong>Due Date:</strong> ${format(values.dueDate, 'PPP')}</p>
-                <p><strong>Priority:</strong> ${values.priority}</p>
-                <p>You can view the task details here: <a href="${process.env.NEXT_PUBLIC_APP_URL}/tasks/${createdTaskData.id}">View Task</a></p>
-                <p>Thank you,<br/>TaskFlow AI Team</p>
-              `,
+              htmlBody: wrapHtmlContent(emailHtmlContent, `New Task: ${values.title}`),
             });
           }
         }
@@ -380,7 +380,7 @@ export default function CreateTaskPage() {
                                   : currentAssigneeIds.filter((id) => id !== user.id);
                                 field.onChange(newAssigneeIds);
                               }}
-                              onSelect={(e) => e.preventDefault()} // Prevent dropdown from closing on select
+                              onSelect={(e) => e.preventDefault()} 
                             >
                               {user.name}
                             </DropdownMenuCheckboxItem>

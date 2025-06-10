@@ -6,15 +6,16 @@ import type { User } from '@/types';
 import sgMail from '@sendgrid/mail';
 
 // Configure SendGrid API Key
-// IMPORTANT: Ensure SENDGRID_API_KEY is set in your environment variables (e.g., .env.local)
 if (process.env.SENDGRID_API_KEY) {
   sgMail.setApiKey(process.env.SENDGRID_API_KEY);
 } else {
   console.warn('SENDGRID_API_KEY is not set. Email sending will be disabled.');
 }
 
-const fromEmail = process.env.SENDGRID_FROM_EMAIL;
-if (!fromEmail) {
+const fromEmailVerified = process.env.SENDGRID_FROM_EMAIL;
+const fromName = process.env.SENDGRID_FROM_NAME || 'TaskFlow AI'; // Default to App Name if not set
+
+if (!fromEmailVerified) {
   console.warn('SENDGRID_FROM_EMAIL is not set. Please set a verified sender email for SendGrid.');
 }
 
@@ -60,14 +61,14 @@ async function getUserDetailsByIds(userIds: string[]): Promise<User[]> {
 }
 
 export async function sendEmail(details: EmailDetails): Promise<{ success: boolean; message: string }> {
-  if (!process.env.SENDGRID_API_KEY || !fromEmail) {
+  if (!process.env.SENDGRID_API_KEY || !fromEmailVerified) {
     const warningMessage = "SendGrid API Key or From Email is not configured. Email not sent. Check server logs.";
     console.warn(warningMessage);
     // Log the email content if SendGrid is not configured, for debugging/development
     console.log("*******************************************");
     console.log("SIMULATING EMAIL SEND (SendGrid not configured):");
     console.log(`To: ${details.to} (${details.recipientName || 'Recipient'})`);
-    console.log(`From (intended): ${fromEmail || 'NOT_CONFIGURED@example.com'}`);
+    console.log(`From (intended): ${fromName} <${fromEmailVerified || 'NOT_CONFIGURED@example.com'}>`);
     console.log(`Subject: ${details.subject}`);
     console.log("Body (HTML):");
     console.log(details.htmlBody);
@@ -77,7 +78,10 @@ export async function sendEmail(details: EmailDetails): Promise<{ success: boole
 
   const msg = {
     to: details.to,
-    from: fromEmail, // Use the verified sender email from environment variables
+    from: {
+        email: fromEmailVerified,
+        name: fromName 
+    },
     subject: details.subject,
     html: details.htmlBody,
     // You can add text: 'equivalent plain text content' if needed
@@ -92,14 +96,50 @@ export async function sendEmail(details: EmailDetails): Promise<{ success: boole
     console.error('Error sending email via SendGrid:');
     if (error.response) {
       console.error('SendGrid Error Response Body:', error.response.body);
-      // error.response.body.errors often contains detailed error messages from SendGrid
       const sendGridErrors = error.response.body.errors?.map((e: any) => e.message).join(', ') || 'Unknown SendGrid API error.';
       return { success: false, message: `Failed to send email via SendGrid: ${sendGridErrors}` };
     }
-    // For other types of errors (network, etc.)
     console.error('Non-SendGrid API Error:', error.message || error);
     return { success: false, message: `Failed to send email: ${error.message || 'An unexpected error occurred.'}` };
   }
 }
 
 export { getUserDetailsByIds };
+
+// Basic HTML Email Template Wrapper
+export function wrapHtmlContent(content: string, title: string = "Notification"): string {
+  return `
+    <!DOCTYPE html>
+    <html lang="en">
+    <head>
+      <meta charset="UTF-8">
+      <meta name="viewport" content="width=device-width, initial-scale=1.0">
+      <title>${title}</title>
+      <style>
+        body { font-family: Arial, sans-serif; margin: 0; padding: 0; background-color: #f4f4f4; }
+        .container { max-width: 600px; margin: 20px auto; background-color: #ffffff; padding: 20px; border-radius: 8px; box-shadow: 0 0 10px rgba(0,0,0,0.1); }
+        .header { text-align: center; padding-bottom: 20px; border-bottom: 1px solid #eeeeee; }
+        .header h1 { color: #333333; margin:0; }
+        .content { padding: 20px 0; color: #555555; line-height: 1.6; }
+        .content p { margin: 10px 0; }
+        .content strong { color: #333333; }
+        .button { display: inline-block; padding: 10px 20px; margin-top: 20px; background-color: #6699CC; color: #ffffff; text-decoration: none; border-radius: 5px; }
+        .footer { text-align: center; padding-top: 20px; border-top: 1px solid #eeeeee; font-size: 0.9em; color: #aaaaaa; }
+      </style>
+    </head>
+    <body>
+      <div class="container">
+        <div class="header">
+          <h1>${fromName}</h1>
+        </div>
+        <div class="content">
+          ${content}
+        </div>
+        <div class="footer">
+          &copy; ${new Date().getFullYear()} ${fromName}. All rights reserved.
+        </div>
+      </div>
+    </body>
+    </html>
+  `;
+}

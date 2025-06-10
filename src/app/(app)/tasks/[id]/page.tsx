@@ -21,7 +21,7 @@ import { format, parseISO } from 'date-fns';
 import { CalendarDays, Briefcase, MessageSquare, History, CheckCircle, AlertTriangle, Edit3, Clock, Loader2, XCircle, ThumbsUp, RotateCcw, User as UserIconLucide, Users } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { supabase } from '@/lib/supabaseClient';
-import { sendEmail, getUserDetailsByIds } from '@/actions/sendEmailAction';
+import { sendEmail, getUserDetailsByIds, wrapHtmlContent } from '@/actions/sendEmailAction';
 
 const logFormSchema = z.object({
   hoursSpent: z.coerce.number().min(0.1, "Hours spent must be greater than 0.").max(100, "Hours cannot exceed 100."),
@@ -73,10 +73,10 @@ export default function TaskDetailPage() {
     try {
       const { data, error: fetchError } = await supabase
         .from('tasks')
-        .select(`
+        .select(\`
           id, title, description, due_date, created_at, assignee_ids, project_id, priority, status, user_id, comments, logs,
           project:projects (name)
-        `)
+        \`)
         .eq('id', taskId)
         .single();
 
@@ -148,7 +148,7 @@ export default function TaskDetailPage() {
       }
       
       console.error(
-        `Error fetching task details. Supabase Code: ${supabaseErrorCode}, Message: ${supabaseErrorMessage}, Details: ${supabaseErrorDetails}, Hint: ${supabaseErrorHint}. Processed display message: ${displayMessage}`, e
+        \`Error fetching task details. Supabase Code: \${supabaseErrorCode}, Message: \${supabaseErrorMessage}, Details: \${supabaseErrorDetails}, Hint: \${supabaseErrorHint}. Processed display message: \${displayMessage}\`, e
       );
       console.error('Full error object fetching task details:', e); 
       setError(displayMessage);
@@ -167,7 +167,7 @@ export default function TaskDetailPage() {
 
     setIsSubmittingComment(true);
     const newCommentObject: TaskComment = {
-      id: `comment_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`,
+      id: \`comment_\${Date.now()}_\${Math.random().toString(36).substring(2, 9)}\`,
       userId: currentUser.id,
       userName: currentUser.name,
       userAvatar: currentUser.avatar,
@@ -203,8 +203,8 @@ export default function TaskDetailPage() {
         const notificationsToInsert = recipientUserDetails
           .map(recipient => ({
             user_id: recipient.id,
-            message: `${currentUser.name} commented on task "${task.title}": "${newCommentObject.comment.substring(0, 50)}..."`,
-            link: `/tasks/${task.id}`,
+            message: \`\${currentUser.name} commented on task "\${task.title}": "\${newCommentObject.comment.substring(0, 50)}..."\`,
+            link: \`/tasks/\${task.id}\`,
             type: 'new_comment_on_task' as NotificationType,
             task_id: task.id,
             triggered_by_user_id: currentUser.id,
@@ -220,26 +220,29 @@ export default function TaskDetailPage() {
              if (notificationError.code === '42501') { 
                  toastMessage = "Comment added. Failed to send notifications: Check RLS policy for inserting 'new_comment_on_task' notifications.";
             } else if (notificationError.message) {
-                 toastMessage += ` Error: ${notificationError.message}`;
+                 toastMessage += \` Error: \${notificationError.message}\`;
             }
             console.error("TaskDetailPage: Error creating 'new_comment_on_task' notifications. Code:", notificationError.code, "Message:", notificationError.message, "Details:", notificationError.details, "Hint:", notificationError.hint, "Full Error:", notificationError);
             toast({ title: "Notification Error", description: toastMessage, variant: "default", duration: 7000 });
           }
         }
-        // Send Emails for new comment
+        
         for (const recipient of recipientUserDetails) {
           if (recipient.email) {
+            const emailHtmlContent = \`
+              <p>Hello \${recipient.name || 'User'},</p>
+              <p>\${currentUser.name} added a comment to the task "<strong>\${task.title}</strong>":</p>
+              <blockquote style="border-left: 4px solid #ccc; padding-left: 1em; margin-left: 0; font-style: italic;">
+                \${newCommentObject.comment.replace(/\\n/g, '<br>')}
+              </blockquote>
+              <p>You can view the task and comment by clicking the button below:</p>
+              <a href="\${process.env.NEXT_PUBLIC_APP_URL}/tasks/\${task.id}" class="button">View Task</a>
+            \`;
             await sendEmail({
               to: recipient.email,
               recipientName: recipient.name,
-              subject: `New Comment on Task: ${task.title}`,
-              htmlBody: `
-                <p>Hello ${recipient.name || 'User'},</p>
-                <p>${currentUser.name} added a comment to the task "${task.title}":</p>
-                <p><em>"${newCommentObject.comment}"</em></p>
-                <p>You can view the task and comment here: <a href="${process.env.NEXT_PUBLIC_APP_URL}/tasks/${task.id}">View Task</a></p>
-                <p>Thank you,<br/>TaskFlow AI Team</p>
-              `,
+              subject: \`New Comment on Task: \${task.title}\`,
+              htmlBody: wrapHtmlContent(emailHtmlContent, \`Comment on: \${task.title}\`),
             });
           }
         }
@@ -258,7 +261,7 @@ export default function TaskDetailPage() {
 
     setIsSubmittingLog(true);
     const newLogObject: TaskLog = {
-      id: `log_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`,
+      id: \`log_\${Date.now()}_\${Math.random().toString(36).substring(2, 9)}\`,
       userId: currentUser.id,
       userName: currentUser.name,
       hoursSpent: values.hoursSpent,
@@ -301,22 +304,22 @@ export default function TaskDetailPage() {
 
     if (newStatus === 'Completed') {
       if (!isCurrentUserAnAssigneeForThisAction) {
-        const denyMsg = `TaskDetailPage: handleUpdateStatus - "Completed" permission denied. Reason: User is not an assignee. CurrentUser ID: ${currentUser?.id}, Task Assignee IDs: ${task.assignee_ids?.join(', ')}`;
+        const denyMsg = \`TaskDetailPage: handleUpdateStatus - "Completed" permission denied. Reason: User is not an assignee. CurrentUser ID: \${currentUser?.id}, Task Assignee IDs: \${task.assignee_ids?.join(', ')}\`;
         console.log(denyMsg);
         toast({ title: "Permission Denied", description: "Only an assigned user can mark this task as 'Completed'.", variant: "destructive"});
         setIsUpdatingStatus(false);
         return;
       }
       if (!(task.status === 'In Progress' || task.status === 'Pending')) {
-        const denyMsg = `TaskDetailPage: handleUpdateStatus - "Completed" permission denied. Reason: Task status is '${task.status}', not 'In Progress' or 'Pending'.`;
+        const denyMsg = \`TaskDetailPage: handleUpdateStatus - "Completed" permission denied. Reason: Task status is '\${task.status}', not 'In Progress' or 'Pending'.\`;
         console.log(denyMsg);
-        toast({ title: "Invalid Action", description: `Task cannot be marked 'Completed' from current status '${task.status}'. Must be 'In Progress' or 'Pending'.`, variant: "destructive"});
+        toast({ title: "Invalid Action", description: \`Task cannot be marked 'Completed' from current status '\${task.status}'. Must be 'In Progress' or 'Pending'.\`, variant: "destructive"});
         setIsUpdatingStatus(false);
         return;
       }
     } else if (newStatus === 'Approved') {
       if (!isAdmin || task.status !== 'Completed') {
-         console.log(`TaskDetailPage: handleUpdateStatus - "Approved" permission denied. Reason: Not admin or task not 'Completed'. IsAdmin: ${isAdmin}, Task Status: ${task.status}`);
+         console.log(\`TaskDetailPage: handleUpdateStatus - "Approved" permission denied. Reason: Not admin or task not 'Completed'. IsAdmin: \${isAdmin}, Task Status: \${task.status}\`);
          toast({ title: "Invalid Action", description: "Only an admin can approve a 'Completed' task.", variant: "destructive"});
          setIsUpdatingStatus(false);
         return;
@@ -330,7 +333,7 @@ export default function TaskDetailPage() {
         }
     } else if (newStatus === 'In Progress' && task.status === 'Pending') { 
         if (!isCurrentUserAnAssigneeForThisAction && !isAdmin) {
-            console.log(`TaskDetailPage: handleUpdateStatus - "In Progress" from "Pending" permission denied. Reason: Not assignee or admin. IsAssignee: ${isCurrentUserAnAssigneeForThisAction}, IsAdmin: ${isAdmin}`);
+            console.log(\`TaskDetailPage: handleUpdateStatus - "In Progress" from "Pending" permission denied. Reason: Not assignee or admin. IsAssignee: \${isCurrentUserAnAssigneeForThisAction}, IsAdmin: \${isAdmin}\`);
             toast({ title: "Permission Denied", description: "You cannot change the task to 'In Progress'.", variant: "destructive"});
             setIsUpdatingStatus(false);
             return;
@@ -339,23 +342,22 @@ export default function TaskDetailPage() {
 
     setIsUpdatingStatus(true);
     try {
-      console.log(`TaskDetailPage: Attempting to update task ${task.id} to status ${newStatus}`);
+      console.log(\`TaskDetailPage: Attempting to update task \${task.id} to status \${newStatus}\`);
       const { error: updateError } = await supabase
         .from('tasks')
         .update({ status: newStatus })
         .eq('id', task.id);
 
       if (updateError) {
-        console.error(`TaskDetailPage: Supabase error updating status to ${newStatus} for task ${task.id}. Code: ${updateError.code}, Message: ${updateError.message}, Details: ${updateError.details}, Hint: ${updateError.hint}`, updateError);
+        console.error(\`TaskDetailPage: Supabase error updating status to \${newStatus} for task \${task.id}. Code: \${updateError.code}, Message: \${updateError.message}, Details: \${updateError.details}, Hint: \${updateError.hint}\`, updateError);
         throw updateError;
       }
 
       setTask(prevTask => prevTask ? { ...prevTask, status: newStatus } : null); 
-      toast({ title: "Status Updated", description: `Task status changed to ${newStatus}.` });
+      toast({ title: "Status Updated", description: \`Task status changed to \${newStatus}.\` });
 
-      // Notification logic & Email Sending:
       if (newStatus === 'Completed' && !isAdmin && currentUser && supabase) { 
-        console.log(`TaskDetailPage: User ${currentUser.id} marked task ${task.id} as completed. Notifying admins.`);
+        console.log(\`TaskDetailPage: User \${currentUser.id} marked task \${task.id} as completed. Notifying admins.\`);
         const adminUsers = await getUserDetailsByIds(
             (await supabase.from('profiles').select('id').eq('role', 'Admin')).data?.map(p => p.id) || []
         );
@@ -363,8 +365,8 @@ export default function TaskDetailPage() {
         if (adminUsers.length > 0) {
           const notificationsToInsert = adminUsers.map(admin => ({
             user_id: admin.id, 
-            message: `${currentUser.name} marked task "${task.title}" as completed. It's ready for approval.`,
-            link: `/admin/approvals`, 
+            message: \`\${currentUser.name} marked task "\${task.title}" as completed. It's ready for approval.\`,
+            link: \`/admin/approvals\`, 
             type: 'task_completed_for_approval' as NotificationType,
             task_id: task.id,
             triggered_by_user_id: currentUser.id, 
@@ -380,7 +382,7 @@ export default function TaskDetailPage() {
                if (notificationError.code === '42501') { 
                  toastMessage = "Task completed. Failed to send notifications: Check RLS policy for inserting 'task_completed_for_approval' notifications by users.";
                } else if (notificationError.message) {
-                 toastMessage += ` Error: ${notificationError.message}`;
+                 toastMessage += \` Error: \${notificationError.message}\`;
                }
               console.error("TaskDetailPage: Error creating 'task_completed_for_approval' notifications. Code:", notificationError.code, "Message:", notificationError.message, "Details:", notificationError.details, "Hint:", notificationError.hint, "Full Error:", notificationError);
               toast({ title: "Notification Error", description: toastMessage, variant: "default", duration: 7000 });
@@ -388,19 +390,19 @@ export default function TaskDetailPage() {
               toast({ title: "Admins Notified", description: "Admins have been notified that the task is ready for approval.", variant: "default" });
             }
           }
-          // Send Emails
           for (const admin of adminUsers) {
             if (admin.email) {
+               const emailHtmlContent = \`
+                <p>Hello \${admin.name || 'Admin'},</p>
+                <p>The task "<strong>\${task.title}</strong>" has been marked as completed by \${currentUser.name} and is now ready for your approval.</p>
+                <p>You can review the task by clicking the button below:</p>
+                <a href="\${process.env.NEXT_PUBLIC_APP_URL}/admin/approvals" class="button">View Approvals</a>
+              \`;
               await sendEmail({
                 to: admin.email,
                 recipientName: admin.name,
-                subject: `Task Ready for Approval: ${task.title}`,
-                htmlBody: `
-                  <p>Hello ${admin.name || 'Admin'},</p>
-                  <p>The task "${task.title}" has been marked as completed by ${currentUser.name} and is now ready for your approval.</p>
-                  <p>You can review the task here: <a href="${process.env.NEXT_PUBLIC_APP_URL}/admin/approvals">View Approvals</a></p>
-                  <p>Thank you,<br/>TaskFlow AI Team</p>
-                `,
+                subject: \`Task Ready for Approval: \${task.title}\`,
+                htmlBody: wrapHtmlContent(emailHtmlContent, \`Approval Needed: \${task.title}\`),
               });
             }
           }
@@ -408,8 +410,8 @@ export default function TaskDetailPage() {
       } else if (newStatus === 'Approved' && isAdmin && currentUser && assigneeDetails.length > 0 && supabase) { 
         const notificationsToInsert = assigneeDetails.map(assignee => ({
             user_id: assignee.id,
-            message: `Your task "${task.title}" has been approved by ${currentUser.name}.`,
-            link: `/tasks/${task.id}`,
+            message: \`Your task "\${task.title}" has been approved by \${currentUser.name}.\`,
+            link: \`/tasks/\${task.id}\`,
             type: 'task_approved' as NotificationType,
             task_id: task.id,
             triggered_by_user_id: currentUser.id,
@@ -418,28 +420,28 @@ export default function TaskDetailPage() {
             const { error: notificationError } = await supabase.from('notifications').insert(notificationsToInsert);
             if (notificationError) console.error("TaskDetailPage: Error creating 'task_approved' notifications (admin approve).", notificationError);
         }
-        // Send Emails
         for (const assignee of assigneeDetails) {
           if (assignee.email) {
+            const emailHtmlContent = \`
+              <p>Hello \${assignee.name || 'User'},</p>
+              <p>Your task "<strong>\${task.title}</strong>" has been approved by \${currentUser.name}.</p>
+              <p>Great job!</p>
+              <p>You can view the task details by clicking the button below:</p>
+              <a href="\${process.env.NEXT_PUBLIC_APP_URL}/tasks/\${task.id}" class="button">View Task</a>
+            \`;
             await sendEmail({
               to: assignee.email,
               recipientName: assignee.name,
-              subject: `Task Approved: ${task.title}`,
-              htmlBody: `
-                <p>Hello ${assignee.name || 'User'},</p>
-                <p>Your task "${task.title}" has been approved by ${currentUser.name}.</p>
-                <p>You can view the task details here: <a href="${process.env.NEXT_PUBLIC_APP_URL}/tasks/${task.id}">View Task</a></p>
-                <p>Great job!</p>
-                <p>Thank you,<br/>TaskFlow AI Team</p>
-              `,
+              subject: \`Task Approved: \${task.title}\`,
+              htmlBody: wrapHtmlContent(emailHtmlContent, \`Task Approved: \${task.title}\`),
             });
           }
         }
       } else if (newStatus === 'In Progress' && task.status === 'Completed' && isAdmin && currentUser && assigneeDetails.length > 0 && supabase) {
         const notificationsToInsert = assigneeDetails.map(assignee => ({
             user_id: assignee.id,
-            message: `Your task "${task.title}" was reviewed by ${currentUser.name} and moved back to 'In Progress'.`,
-            link: `/tasks/${task.id}`,
+            message: \`Your task "\${task.title}" was reviewed by \${currentUser.name} and moved back to 'In Progress'.\`,
+            link: \`/tasks/\${task.id}\`,
             type: 'task_rejected' as NotificationType,
             task_id: task.id,
             triggered_by_user_id: currentUser.id,
@@ -448,20 +450,20 @@ export default function TaskDetailPage() {
             const { error: notificationError } = await supabase.from('notifications').insert(notificationsToInsert);
             if (notificationError) console.error("TaskDetailPage: Error creating 'task_rejected' notifications (admin reject).", notificationError);
         }
-         // Send Emails
         for (const assignee of assigneeDetails) {
           if (assignee.email) {
+            const emailHtmlContent = \`
+              <p>Hello \${assignee.name || 'User'},</p>
+              <p>Your task "<strong>\${task.title}</strong>" was reviewed by \${currentUser.name} and has been moved back to 'In Progress'.</p>
+              <p>Please review any comments or feedback and continue working on it.</p>
+              <p>You can view the task details by clicking the button below:</p>
+              <a href="\${process.env.NEXT_PUBLIC_APP_URL}/tasks/\${task.id}" class="button">View Task</a>
+            \`;
             await sendEmail({
               to: assignee.email,
               recipientName: assignee.name,
-              subject: `Task Update: ${task.title} - Requires Attention`,
-              htmlBody: `
-                <p>Hello ${assignee.name || 'User'},</p>
-                <p>Your task "${task.title}" was reviewed by ${currentUser.name} and has been moved back to 'In Progress'.</p>
-                <p>Please review any comments or feedback and continue working on it.</p>
-                <p>You can view the task details here: <a href="${process.env.NEXT_PUBLIC_APP_URL}/tasks/${task.id}">View Task</a></p>
-                <p>Thank you,<br/>TaskFlow AI Team</p>
-              `,
+              subject: \`Task Update: \${task.title} - Requires Attention\`,
+              htmlBody: wrapHtmlContent(emailHtmlContent, \`Task Update: \${task.title}\`),
             });
           }
         }
@@ -472,9 +474,9 @@ export default function TaskDetailPage() {
       const supabaseErrorMessage = e?.message;
       const supabaseErrorDetails = e?.details;
       const supabaseErrorHint = e?.hint;
-      console.error(`TaskDetailPage: Catch block for handleUpdateStatus to ${newStatus}. Supabase Code: ${supabaseErrorCode}, Message: ${supabaseErrorMessage}, Details: ${supabaseErrorDetails}, Hint: ${supabaseErrorHint}`, e);
-      let displayMessage = supabaseErrorMessage || (typeof e === 'string' ? e : `Could not update task status to ${newStatus}.`);
-      if (supabaseErrorDetails) displayMessage += ` Details: ${supabaseErrorDetails}`;
+      console.error(\`TaskDetailPage: Catch block for handleUpdateStatus to \${newStatus}. Supabase Code: \${supabaseErrorCode}, Message: \${supabaseErrorMessage}, Details: \${supabaseErrorDetails}, Hint: \${supabaseErrorHint}\`, e);
+      let displayMessage = supabaseErrorMessage || (typeof e === 'string' ? e : \`Could not update task status to \${newStatus}.\`);
+      if (supabaseErrorDetails) displayMessage += \` Details: \${supabaseErrorDetails}\`;
       toast({ title: 'Error Updating Status', description: displayMessage, variant: 'destructive' });
     } finally {
       setIsUpdatingStatus(false);
@@ -567,7 +569,7 @@ export default function TaskDetailPage() {
                       assigneeDetails.map(assignee => (
                         <Badge key={assignee.id} variant="outline" className="flex items-center gap-1 px-2 py-0.5">
                           <Avatar className="h-4 w-4" data-ai-hint="user avatar tiny">
-                              <AvatarImage src={assignee.avatar || `https://placehold.co/20x20.png`} />
+                              <AvatarImage src={assignee.avatar || \`https://placehold.co/20x20.png\`} />
                               <AvatarFallback className="text-xs">{assignee.name?.substring(0,1) || 'U'}</AvatarFallback>
                           </Avatar>
                           <span className="text-xs">{assignee.name}</span>
@@ -587,7 +589,7 @@ export default function TaskDetailPage() {
         </CardContent>
         <CardFooter className="flex flex-col sm:flex-row justify-end items-center gap-2 pt-4 border-t">
           {isAdmin && (
-            <Button variant="outline" onClick={() => router.push(`/tasks/edit/${task.id}`)} disabled={isUpdatingStatus || !supabase}><Edit3 className="mr-2 h-4 w-4" /> Edit Task</Button>
+            <Button variant="outline" onClick={() => router.push(\`/tasks/edit/\${task.id}\`)} disabled={isUpdatingStatus || !supabase}><Edit3 className="mr-2 h-4 w-4" /> Edit Task</Button>
           )}
           {canStartTask && (
             <Button onClick={() => handleUpdateStatus('In Progress')} disabled={isUpdatingStatus || !supabase}>Start Task</Button>
@@ -617,7 +619,7 @@ export default function TaskDetailPage() {
               {(task.comments || []).slice().sort((a,b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime() ).map(comment => (
                 <div key={comment.id} className="flex items-start space-x-3">
                   <Avatar className="h-10 w-10" data-ai-hint="user avatar">
-                    <AvatarImage src={comment.userAvatar || `https://placehold.co/40x40.png`} />
+                    <AvatarImage src={comment.userAvatar || \`https://placehold.co/40x40.png\`} />
                     <AvatarFallback>{comment.userName?.substring(0,2).toUpperCase() || '??'}</AvatarFallback>
                   </Avatar>
                   <div className="flex-1 p-3 rounded-md bg-muted/50">

@@ -38,7 +38,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { sendEmail, getUserDetailsByIds } from '@/actions/sendEmailAction';
+import { sendEmail, wrapHtmlContent } from '@/actions/sendEmailAction';
 
 const taskPriorities: TaskPriority[] = ['Low', 'Medium', 'High'];
 const editableTaskStatuses: TaskStatus[] = ['Pending', 'In Progress', 'Completed', 'Approved'];
@@ -209,20 +209,20 @@ export default function EditTaskPage() {
             }
         }
 
-        // Send emails to newly assigned users
         for (const assignee of newlyAssignedUserDetails) {
           if (assignee.email) {
+             const emailHtmlContent = `
+              <p>Hello ${assignee.name || 'User'},</p>
+              <p>You have been assigned to the task "<strong>${values.title}</strong>" by ${currentUser.name}.</p>
+              <p><strong>Due Date:</strong> ${format(values.dueDate, 'PPP')}</p>
+              <p>You can view the task details by clicking the button below:</p>
+              <a href="${process.env.NEXT_PUBLIC_APP_URL}/tasks/${task.id}" class="button">View Task</a>
+            `;
             await sendEmail({
               to: assignee.email,
               recipientName: assignee.name,
               subject: `Task Assignment Update: ${values.title}`,
-              htmlBody: `
-                <p>Hello ${assignee.name || 'User'},</p>
-                <p>You have been assigned to the task "${values.title}" by ${currentUser.name}.</p>
-                <p><strong>Due Date:</strong> ${format(values.dueDate, 'PPP')}</p>
-                <p>You can view the task details here: <a href="${process.env.NEXT_PUBLIC_APP_URL}/tasks/${task.id}">View Task</a></p>
-                <p>Thank you,<br/>TaskFlow AI Team</p>
-              `,
+              htmlBody: wrapHtmlContent(emailHtmlContent, `Task Update: ${values.title}`),
             });
           }
         }
