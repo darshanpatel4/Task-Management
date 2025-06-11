@@ -100,10 +100,21 @@ export function AppHeader() {
       )
       .subscribe((status, err) => {
         if (status === 'SUBSCRIBED') {
-          console.log('AppHeader: Subscribed to notifications channel for user:', currentUser.id);
+          console.log('AppHeader: Successfully subscribed to notifications Realtime channel for user:', currentUser.id);
         }
         if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
-          console.error('AppHeader: Error subscribing to notifications channel. Status:', status, 'Error:', err);
+          console.error(`AppHeader: Realtime subscription failed for notifications. Status: ${status}.`);
+          if (err) {
+            console.error("Associated Realtime error object:", err);
+          }
+          console.warn("Troubleshooting Realtime: \n1. Check RLS policies on 'notifications' table (user needs SELECT). \n2. Ensure 'replication' is enabled for 'notifications' table in Supabase Dashboard (Database > Replication).");
+          // Optionally, inform user that live updates might be off
+          // toast({
+          //   title: "Realtime Notification Issue",
+          //   description: "Live updates for notifications might be unavailable. Please check console for details.",
+          //   variant: "default",
+          //   duration: 8000,
+          // });
         }
       });
     return () => {
@@ -312,3 +323,4 @@ export function AppHeader() {
     </header>
   );
 }
+
