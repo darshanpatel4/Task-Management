@@ -8,11 +8,12 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import Link from 'next/link';
-import { ArrowRight, Users, ListChecks, CheckCircle2, FolderKanban, Loader2, AlertTriangle, Activity } from 'lucide-react';
+import { ArrowRight, Users, ListChecks, CheckCircle2, FolderKanban, Loader2, AlertTriangle, Activity, Clock } from 'lucide-react';
 import { format, parseISO } from 'date-fns';
 import { supabase } from '@/lib/supabaseClient';
 import { useToast } from '@/hooks/use-toast';
 import { useRouter, usePathname } from 'next/navigation';
+// Removed sendEmail and NotificationType imports as performSystemWideTaskChecks is removed
 
 interface DashboardStats {
   totalUsers: number;
@@ -33,7 +34,6 @@ export default function DashboardPage() {
   const [isLoadingTasks, setIsLoadingTasks] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [assigneeNames, setAssigneeNames] = useState<Record<string, string>>({});
-
 
   const fetchDashboardData = useCallback(async () => {
     console.log("Dashboard: fetchDashboardData called. Auth Initialized:", authInitialized, "Auth Loading:", authLoading, "Has CurrentUser:", !!currentUser, "Has Supabase:", !!supabase);
@@ -69,10 +69,10 @@ export default function DashboardPage() {
           supabase.from('projects').select('*', { count: 'exact', head: true }),
         ]);
 
-        if (usersError) { console.error('Dashboard: Error fetching users count:', usersError); throw new Error(`Users count: ${usersError.message} (Code: ${usersError.code})`); }
-        if (activeTasksError) { console.error('Dashboard: Error fetching active tasks count:', activeTasksError); throw new Error(`Active tasks count: ${activeTasksError.message} (Code: ${activeTasksError.code})`); }
-        if (approvalsError) { console.error('Dashboard: Error fetching approvals count:', approvalsError); throw new Error(`Approvals count: ${approvalsError.message} (Code: ${approvalsError.code})`); }
-        if (projectsError) { console.error('Dashboard: Error fetching projects count:', projectsError); throw new Error(`Projects count: ${projectsError.message} (Code: ${projectsError.code})`); }
+        if (usersError) { console.error('Dashboard: Error fetching users count:', usersError); throw new Error("Users count: " + usersError.message + " (Code: " + usersError.code + ")"); }
+        if (activeTasksError) { console.error('Dashboard: Error fetching active tasks count:', activeTasksError); throw new Error("Active tasks count: " + activeTasksError.message + " (Code: " + activeTasksError.code + ")"); }
+        if (approvalsError) { console.error('Dashboard: Error fetching approvals count:', approvalsError); throw new Error("Approvals count: " + approvalsError.message + " (Code: " + approvalsError.code + ")"); }
+        if (projectsError) { console.error('Dashboard: Error fetching projects count:', projectsError); throw new Error("Projects count: " + projectsError.message + " (Code: " + projectsError.code + ")"); }
         
         console.log("Dashboard: Admin stats fetched.", { totalUsersCount, activeTasksCount, pendingApprovalsCount, activeProjectsCount });
         setStats({
@@ -93,8 +93,8 @@ export default function DashboardPage() {
         .order('created_at', { ascending: false });
 
       if (!isAdmin && currentUser?.id) {
-        tasksQuery = tasksQuery.filter('assignee_ids', 'cs', `{${currentUser.id}}`);
-        console.log(`Dashboard: User task query for assignee_ids containing: ${currentUser.id}.`);
+        tasksQuery = tasksQuery.filter('assignee_ids', 'cs', "{" + currentUser.id + "}");
+        console.log("Dashboard: User task query for assignee_ids containing: " + currentUser.id + ".");
       } else if (isAdmin) {
          tasksQuery = tasksQuery.limit(5); 
          console.log("Dashboard: Admin task query (limit 5).");
@@ -105,22 +105,22 @@ export default function DashboardPage() {
 
       if (tasksFetchError) {
         let errorLog = 'Dashboard: Error fetching tasks.\n';
-        errorLog += `  Is Error Object: ${tasksFetchError instanceof Error}\n`;
-        errorLog += `  Code: ${tasksFetchError.code || 'N/A'}\n`;
-        errorLog += `  Message: ${tasksFetchError.message || 'N/A'}\n`;
-        errorLog += `  Details: ${tasksFetchError.details || 'N/A'}\n`;
-        errorLog += `  Hint: ${tasksFetchError.hint || 'N/A'}\n`;
+        errorLog += "  Is Error Object: " + (tasksFetchError instanceof Error) + "\n";
+        errorLog += "  Code: " + (tasksFetchError.code || 'N/A') + "\n";
+        errorLog += "  Message: " + (tasksFetchError.message || 'N/A') + "\n";
+        errorLog += "  Details: " + (tasksFetchError.details || 'N/A') + "\n";
+        errorLog += "  Hint: " + (tasksFetchError.hint || 'N/A') + "\n";
         try {
-          errorLog += `  JSON.stringify: ${JSON.stringify(tasksFetchError)}\n`;
-        } catch (stringifyError: any) {
-          errorLog += `  JSON.stringify failed: ${stringifyError?.message || String(stringifyError)}\n`;
+          errorLog += "  JSON.stringify: " + JSON.stringify(tasksFetchError) + "\n";
+        } catch (stringifyError) {
+          errorLog += "  JSON.stringify failed: " + (stringifyError?.message || String(stringifyError)) + "\n";
         }
-        errorLog += `  Full Object (raw):`;
+        errorLog += "  Full Object (raw):";
         console.error(errorLog, tasksFetchError); 
 
-        let detailedErrorMessage = `Tasks fetch failed.`;
-        if (tasksFetchError.message) detailedErrorMessage += ` Message: ${tasksFetchError.message}`;
-        if (tasksFetchError.code) detailedErrorMessage += ` Code: ${tasksFetchError.code}`;
+        let detailedErrorMessage = "Tasks fetch failed.";
+        if (tasksFetchError.message) detailedErrorMessage += " Message: " + tasksFetchError.message;
+        if (tasksFetchError.code) detailedErrorMessage += " Code: " + tasksFetchError.code;
         
         throw new Error(detailedErrorMessage);
       }
@@ -144,7 +144,7 @@ export default function DashboardPage() {
       console.log("Dashboard: Tasks mapped.", { count: mappedTasks.length });
       setDisplayedTasks(mappedTasks);
 
-      if (isAdmin && mappedTasks.length > 0) {
+      if (mappedTasks.length > 0) { // Fetch assignee names for all users if tasks exist
         const allAssigneeIdsInFetchedTasks = mappedTasks.flatMap(t => t.assignee_ids || []).filter((id, index, self) => id && self.indexOf(id) === index);
 
         if (allAssigneeIdsInFetchedTasks.length > 0) {
@@ -154,7 +154,7 @@ export default function DashboardPage() {
             .in('id', allAssigneeIdsInFetchedTasks);
           
           if (profilesError) {
-            console.error('Dashboard: Error fetching assignee names for admin dashboard:', profilesError);
+            console.error('Dashboard: Error fetching assignee names:', profilesError);
           } else {
             const namesMap: Record<string, string> = {};
             profilesData?.forEach(p => { namesMap[p.id] = p.full_name || 'N/A'; });
@@ -163,15 +163,16 @@ export default function DashboardPage() {
         }
       }
 
-    } catch (e: any) {
-      const supabaseErrorCode = e?.code; 
-      const supabaseErrorMessage = e?.message; 
-      const supabaseErrorDetails = e?.details; 
-      const supabaseErrorHint = e?.hint;     
+    } catch (e) {
+      const err = e as any;
+      const supabaseErrorCode = err?.code; 
+      const supabaseErrorMessage = err?.message; 
+      const supabaseErrorDetails = err?.details; 
+      const supabaseErrorHint = err?.hint;     
       
       let displayMessage = supabaseErrorMessage || (typeof e === 'string' ? e : 'Could not load dashboard data.');
       
-      console.error(`Dashboard: Overall fetch error. Supabase Code: ${supabaseErrorCode}, Message: ${supabaseErrorMessage}, Details: ${supabaseErrorDetails}, Hint: ${supabaseErrorHint}. Processed display message: ${displayMessage}`, e);
+      console.error("Dashboard: Overall fetch error. Supabase Code: " + supabaseErrorCode + ", Message: " + supabaseErrorMessage + ", Details: " + supabaseErrorDetails + ", Hint: " + supabaseErrorHint + ". Processed display message: " + displayMessage, e);
       console.error('Dashboard: Full error object:', e);
       setError(displayMessage);
       toast({ title: 'Error Loading Dashboard', description: displayMessage, variant: 'destructive' });
@@ -195,16 +196,17 @@ export default function DashboardPage() {
 
   const getAssigneeDisplay = (assigneeIds?: string[] | null): string => {
     if (!assigneeIds || assigneeIds.length === 0) return 'Unassigned';
+    
+    const names = assigneeIds.map(id => assigneeNames[id] || id.substring(0,8) + '...');
+    
     if (assigneeIds.length === 1) {
-      return assigneeNames[assigneeIds[0]] || assigneeIds[0].substring(0, 8) + '...';
+        return names[0];
     }
-    const names = assigneeIds.map(id => assigneeNames[id] || id.substring(0,8) + '...').join(', ');
-    if (names.length > 30) {
-      return `${assigneeIds.length} Assignees`;
+    if (names.join(', ').length > 30 && assigneeIds.length > 1) {
+        return assigneeIds.length + " Assignees";
     }
-    return names;
+    return names.join(', ') || 'N/A';
   };
-
 
   const getStatusVariant = (status?: Task['status']): "default" | "secondary" | "destructive" | "outline" => {
     switch (status) {
@@ -224,7 +226,6 @@ export default function DashboardPage() {
       default: return 'secondary';
     }
   };
-
 
   if (authLoading || !authInitialized || (isLoadingStats && isAdmin) || isLoadingTasks) {
     return (
@@ -340,13 +341,13 @@ export default function DashboardPage() {
               {displayedTasks.map((task) => (
                 <li key={task.id} className="flex flex-col sm:flex-row items-start sm:items-center justify-between p-4 rounded-lg border hover:shadow-md transition-shadow">
                   <div className="flex-1 mb-2 sm:mb-0">
-                    <Link href={`/tasks/${task.id}`} className="font-semibold text-primary hover:underline">
+                    <Link href={"/tasks/" + task.id} className="font-semibold text-primary hover:underline">
                       {task.title}
                     </Link>
                     <p className="text-sm text-muted-foreground">
                       Project: {task.projectName || 'N/A'} - Due: {task.dueDate ? format(parseISO(task.dueDate), 'PPP') : 'N/A'}
                     </p>
-                    {isAdmin && (
+                     {(isAdmin || (currentUser && task.assignee_ids && task.assignee_ids.length > 1 && task.assignee_ids.includes(currentUser.id)) ) && (
                         <p className="text-xs text-muted-foreground">
                             Assigned to: {getAssigneeDisplay(task.assignee_ids)}
                         </p>
@@ -355,7 +356,7 @@ export default function DashboardPage() {
                   <div className="flex items-center gap-2">
                     <Badge variant={getPriorityVariant(task.priority)} className="capitalize">{task.priority}</Badge>
                     <Badge variant={getStatusVariant(task.status)} className="capitalize">{task.status}</Badge>
-                    <Link href={`/tasks/${task.id}`}>
+                    <Link href={"/tasks/" + task.id}>
                       <Button variant="ghost" size="sm">
                         View <ArrowRight className="ml-1 h-4 w-4" />
                       </Button>
@@ -370,3 +371,4 @@ export default function DashboardPage() {
     </div>
   );
 }
+
