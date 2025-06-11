@@ -89,6 +89,7 @@ export default function DashboardPage() {
       let tasksQuery = supabase
         .from('tasks')
         .select('id, title, description, due_date, created_at, assignee_ids, project_id, priority, status, user_id, project:projects!inner(name)')
+        .not('status', 'eq', 'Approved') // Exclude 'Approved' tasks
         .order('created_at', { ascending: false });
 
       if (!isAdmin && currentUser?.id) {
