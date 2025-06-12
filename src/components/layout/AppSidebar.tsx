@@ -11,10 +11,10 @@ import type { NavItem } from '@/types';
 
 const navItems: NavItem[] = [
   { href: '/dashboard', label: 'Dashboard', icon: LayoutDashboard, teamViewable: true },
-  { href: '/tasks', label: 'Tasks', icon: ListChecks, teamViewable: true },
-  { href: '/tasks', label: 'Log Work', icon: Clock, userSpecific: true, activePathPrefix: '/tasks' }, // New item for users
+  { href: '/tasks', label: 'Tasks', icon: ListChecks, teamViewable: true, activePathPrefix: '/tasks' },
+  { href: '/log-work', label: 'Log Work', icon: Clock, userSpecific: true, activePathPrefix: '/log-work' }, 
   { href: '/notes', label: 'My Notes', icon: BookUser, teamViewable: true, userSpecific: true, activePathPrefix: '/notes' },
-  { href: '/members', label: 'Team Members', icon: UsersIconLucide, userSpecific: true, activePathPrefix: '/members' }, // Show for non-admins
+  { href: '/members', label: 'Team Members', icon: UsersIconLucide, userSpecific: true, activePathPrefix: '/members' }, 
   { href: '/admin/projects', label: 'Projects', icon: FolderKanban, adminOnly: true, activePathPrefix: '/admin/projects' },
   { href: '/admin/users', label: 'User Management', icon: UsersIconLucide, adminOnly: true, activePathPrefix: '/admin/users' },
   { href: '/admin/approvals', label: 'Task Approvals', icon: CheckCircle2, adminOnly: true, activePathPrefix: '/admin/approvals' },
@@ -36,35 +36,25 @@ export function AppSidebar() {
     return items
       .filter(item => {
         if (item.adminOnly) return isAdmin;
-        if (item.userSpecific) return !isAdmin;
-        return item.teamViewable || isAdmin;
+        if (item.userSpecific) return !isAdmin; // Show if userSpecific is true AND user is NOT admin
+        return item.teamViewable || isAdmin; // Fallback for general team viewable items or admin view
       })
       .map((item) => {
         let isItemActive = pathname === item.href;
-        // Use activePathPrefix for more robust active state checking
         if (item.activePathPrefix && pathname.startsWith(item.activePathPrefix)) {
-            // Exact match for prefix is enough for active state
             isItemActive = true;
-            // However, if item.href is more specific, it might be preferred
-            // For example, if prefix is /tasks and href is /tasks/create,
-            // and current path is /tasks/create, it should be active.
-            // If current path is /tasks, and href is /tasks/create, it should NOT be active for /tasks/create.
-            // The current logic: if current path starts with prefix, it's active. This handles parent active states.
-            // If a more specific item.href itself matches, it's also active.
-            // This usually works fine for typical sidebar highlighting.
         }
-
-
-        // Specific overrides if activePathPrefix isn't granular enough for exact matches or root paths
-        // Example: if href is '/tasks' and path is '/tasks/some-id', activePathPrefix handles this.
-        // If href is '/tasks' and path is '/tasks', exact match works.
-
-        // Consolidate active logic:
-        // 1. Exact match with item.href
-        // 2. Path starts with item.activePathPrefix (if defined)
         if (pathname === item.href) {
             isItemActive = true;
-        } else if (item.activePathPrefix && pathname.startsWith(item.activePathPrefix)) {
+        }
+        
+        // Special case for /tasks and /log-work. If on /tasks/create or /tasks/[id], /tasks should be active.
+        // If on /log-work, /log-work should be active.
+        if (item.href === '/tasks' && (pathname.startsWith('/tasks/') || pathname === '/log-work')) {
+             // If current item is 'Tasks' and path is /log-work, 'Tasks' should NOT be active
+            if (pathname === '/log-work') isItemActive = false;
+        }
+        if (item.href === '/log-work' && pathname === '/log-work') {
             isItemActive = true;
         }
 
