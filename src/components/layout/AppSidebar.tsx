@@ -5,13 +5,14 @@ import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { useAuth } from '@/context/AuthContext';
 import { Sidebar, SidebarMenu, SidebarMenuItem, SidebarMenuButton, SidebarHeader, SidebarFooter, SidebarContent, SidebarSeparator } from '@/components/ui/sidebar';
-import { LayoutDashboard, ListChecks, Users as UsersIconLucide, LogOut, FolderKanban, CheckCircle2, StickyNote, BookUser } from 'lucide-react';
+import { LayoutDashboard, ListChecks, Users as UsersIconLucide, LogOut, FolderKanban, CheckCircle2, StickyNote, BookUser, Clock } from 'lucide-react';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import type { NavItem } from '@/types';
 
 const navItems: NavItem[] = [
   { href: '/dashboard', label: 'Dashboard', icon: LayoutDashboard, teamViewable: true },
   { href: '/tasks', label: 'Tasks', icon: ListChecks, teamViewable: true },
+  { href: '/tasks', label: 'Log Work', icon: Clock, userSpecific: true, activePathPrefix: '/tasks' }, // New item for users
   { href: '/notes', label: 'My Notes', icon: BookUser, teamViewable: true, userSpecific: true, activePathPrefix: '/notes' },
   { href: '/members', label: 'Team Members', icon: UsersIconLucide, userSpecific: true, activePathPrefix: '/members' }, // Show for non-admins
   { href: '/admin/projects', label: 'Projects', icon: FolderKanban, adminOnly: true, activePathPrefix: '/admin/projects' },
@@ -35,43 +36,41 @@ export function AppSidebar() {
     return items
       .filter(item => {
         if (item.adminOnly) return isAdmin;
-        if (item.userSpecific) return !isAdmin; // Handles "My Notes" and "Team Members" for non-admins
-        return item.teamViewable || isAdmin; // Default visibility for other items
+        if (item.userSpecific) return !isAdmin;
+        return item.teamViewable || isAdmin;
       })
       .map((item) => {
         let isItemActive = pathname === item.href;
+        // Use activePathPrefix for more robust active state checking
         if (item.activePathPrefix && pathname.startsWith(item.activePathPrefix)) {
-          isItemActive = true;
+            // Exact match for prefix is enough for active state
+            isItemActive = true;
+            // However, if item.href is more specific, it might be preferred
+            // For example, if prefix is /tasks and href is /tasks/create,
+            // and current path is /tasks/create, it should be active.
+            // If current path is /tasks, and href is /tasks/create, it should NOT be active for /tasks/create.
+            // The current logic: if current path starts with prefix, it's active. This handles parent active states.
+            // If a more specific item.href itself matches, it's also active.
+            // This usually works fine for typical sidebar highlighting.
         }
 
-        // Specific handling for /tasks to include /tasks/[id] and /tasks/edit/[id] etc.
-        if (item.href === '/tasks' && (pathname === '/tasks' || pathname.startsWith('/tasks/'))) {
-          isItemActive = true;
-        }
-        // Specific handling for /admin/users to include sub-routes
-        if (item.href === '/admin/users' && (pathname === '/admin/users' || pathname.startsWith('/admin/users/'))) {
+
+        // Specific overrides if activePathPrefix isn't granular enough for exact matches or root paths
+        // Example: if href is '/tasks' and path is '/tasks/some-id', activePathPrefix handles this.
+        // If href is '/tasks' and path is '/tasks', exact match works.
+
+        // Consolidate active logic:
+        // 1. Exact match with item.href
+        // 2. Path starts with item.activePathPrefix (if defined)
+        if (pathname === item.href) {
             isItemActive = true;
-        }
-        // Specific handling for /admin/projects to include sub-routes
-        if (item.href === '/admin/projects' && (pathname === '/admin/projects' || pathname.startsWith('/admin/projects/'))) {
-            isItemActive = true;
-        }
-        // Specific handling for /admin/notes to include sub-routes
-        if (item.href === '/admin/notes' && (pathname === '/admin/notes' || pathname.startsWith('/admin/notes/'))) {
-            isItemActive = true;
-        }
-        // Specific handling for /notes (user's notes)
-        if (item.href === '/notes' && (pathname === '/notes' || pathname.startsWith('/notes/'))) {
-            isItemActive = true;
-        }
-         // Specific handling for /members (user's view)
-        if (item.href === '/members' && (pathname === '/members' || pathname.startsWith('/members/'))) {
+        } else if (item.activePathPrefix && pathname.startsWith(item.activePathPrefix)) {
             isItemActive = true;
         }
 
 
         return (
-          <SidebarMenuItem key={item.href + item.label}>
+          <SidebarMenuItem key={item.href + item.label + (item.userSpecific ? '-user' : '') + (item.adminOnly ? '-admin' : '')}>
             <SidebarMenuButton
               asChild
               isActive={isItemActive}
@@ -120,4 +119,3 @@ export function AppSidebar() {
     </Sidebar>
   );
 }
-
