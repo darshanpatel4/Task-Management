@@ -22,7 +22,7 @@ import { CalendarDays, Briefcase, MessageSquare, History, CheckCircle, AlertTria
 import { useToast } from '@/hooks/use-toast';
 import { supabase } from '@/lib/supabaseClient';
 import { sendEmail } from '@/actions/sendEmailAction';
-import { Popover, PopoverAnchor, PopoverContent } from '@/components/ui/popover';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'; // Removed PopoverAnchor
 import { Command, CommandInput, CommandList, CommandEmpty, CommandGroup, CommandItem } from '@/components/ui/command';
 
 const logFormSchema = z.object({
@@ -259,7 +259,6 @@ export default function TaskDetailPage() {
       setNewComment('');
       toast({ title: 'Success', description: 'Comment added.' });
 
-      // ... (existing notification logic for comments)
        if (currentUser && supabase) {
         const recipientsIds = new Set<string>();
         assigneeDetails.forEach(ad => {
@@ -269,10 +268,9 @@ export default function TaskDetailPage() {
             recipientsIds.add(creatorDetails.id);
         }
 
-        // Check for @mentions in the comment to notify specific users
         mentionableUsers.forEach(user => {
             if (newCommentObject.comment.includes(`@${user.name}`)) {
-                recipientsIds.add(user.id); // Add mentioned user if not already included
+                recipientsIds.add(user.id); 
             }
         });
 
@@ -296,13 +294,28 @@ export default function TaskDetailPage() {
             .from('notifications')
             .insert(notificationsToInsert);
           if (notificationError) {
-            // ... (existing error handling for notifications)
+             console.error('Error creating comment notifications:', notificationError);
           }
         }
 
         for (const recipient of recipientUserDetails) {
           if (recipient.email) {
-            // ... (existing email sending logic)
+             const emailRawContent = `
+              <p>Hello ${recipient.full_name || 'User'},</p>
+              <p><strong>${currentUser.name}</strong> commented on the task "<strong>${task.title}</strong>":</p>
+              <blockquote style="border-left: 4px solid #ccc; padding-left: 1em; margin-left: 0; font-style: italic; color: #666;">
+                ${newCommentObject.comment.replace(/\n/g, '<br>')}
+              </blockquote>
+              ${newCommentObject.comment.includes(`@${recipient.full_name}`) ? "<p><strong>You were mentioned in this comment.</strong></p>" : ""}
+              <p>You can view the task and comment by clicking the button below:</p>
+              <a href="${process.env.NEXT_PUBLIC_APP_URL}/tasks/${task.id}" class="button">View Task</a>
+            `;
+            await sendEmail({
+              to: recipient.email,
+              recipientName: recipient.full_name || undefined,
+              subject: `New Comment on Task: ${task.title} (from ${currentUser.name})`,
+              rawContent: emailRawContent,
+            });
           }
         }
       }
@@ -318,7 +331,6 @@ export default function TaskDetailPage() {
 
   const handleAddLog = async (values: LogFormValues) => {
     if (!task || !currentUser || !supabase) return;
-    // ... (existing log logic)
     setIsSubmittingLog(true);
     const newLogObject: TaskLog = {
       id: `log_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`,
@@ -344,20 +356,51 @@ export default function TaskDetailPage() {
   };
 
   const handleUpdateStatus = async (newStatus: TaskStatus) => {
-    // ... (existing status update logic)
     if (!task || !supabase || !currentUser) {
       toast({ title: "Error", description: "Task or user data missing for status update.", variant: "destructive"});
       setIsUpdatingStatus(false);
       return;
     }
-    // ... (rest of the permission checks and logic from original file) ...
     setIsUpdatingStatus(true);
     try {
       const { error: updateError } = await supabase.from('tasks').update({ status: newStatus }).eq('id', task.id);
       if (updateError) throw updateError;
       setTask(prevTask => prevTask ? { ...prevTask, status: newStatus } : null);
       toast({ title: "Status Updated", description: `Task status changed to ${newStatus}.` });
-      // ... (existing notification logic for status changes) ...
+      // Simplified notification logic for status changes (can be expanded)
+      if (newStatus === 'Completed' && assigneeDetails.length > 0 && currentUser) {
+        // Notify admin(s) if they exist, or a generic system message if no specific admin to notify is easily identifiable
+        const adminUsers = (await supabase.from('profiles').select('id, email, full_name').eq('role', 'Admin')).data || [];
+        for (const admin of adminUsers) {
+          if (admin.id !== currentUser.id) { // Don't notify admin if they are the one completing
+            const adminNotification = {
+              user_id: admin.id,
+              message: `Task "${task.title}" was marked as 'Completed' by ${currentUser.name} and is ready for approval.`,
+              link: `/admin/approvals`, // Link to approvals page
+              type: 'task_completed_for_approval' as NotificationType,
+              task_id: task.id,
+              triggered_by_user_id: currentUser.id,
+            };
+            await supabase.from('notifications').insert([adminNotification]);
+            if (admin.email) {
+               const emailRawContent = `
+                <p>Hello ${admin.full_name || 'Admin'},</p>
+                <p>The task "<strong>${task.title}</strong>" has been marked as 'Completed' by <strong>${currentUser.name}</strong> and is now awaiting your approval.</p>
+                <p>You can review this task by clicking the button below:</p>
+                <a href="${process.env.NEXT_PUBLIC_APP_URL}/admin/approvals" class="button">Review Approvals</a>
+                <p>Or view the task directly:</p>
+                <a href="${process.env.NEXT_PUBLIC_APP_URL}/tasks/${task.id}" class="button">View Task</a>
+              `;
+              await sendEmail({
+                to: admin.email,
+                recipientName: admin.full_name || undefined,
+                subject: `Task Ready for Approval: ${task.title}`,
+                rawContent: emailRawContent,
+              });
+            }
+          }
+        }
+      }
     } catch (e: any) {
       const displayMessage = (e as any).message || `Could not update task status to ${newStatus}.`;
       toast({ title: 'Error Updating Status', description: displayMessage, variant: 'destructive' });
@@ -366,8 +409,24 @@ export default function TaskDetailPage() {
     }
   };
 
-  const getStatusVariant = (status?: TaskStatus): "default" | "secondary" | "destructive" | "outline" => { /* ... */ return 'default'; };
-  const getPriorityVariant = (priority?: TaskPriority): "default" | "secondary" | "destructive" | "outline" => { /* ... */ return 'default'; };
+  const getStatusVariant = (status?: TaskStatus): "default" | "secondary" | "destructive" | "outline" => {
+    switch (status) {
+      case 'Pending': return 'secondary';
+      case 'In Progress': return 'default';
+      case 'Completed': return 'outline'; // Typically green-ish, but outline is fine
+      case 'Approved': return 'default'; // Could be different, like more solid green
+      default: return 'secondary';
+    }
+  };
+
+  const getPriorityVariant = (priority?: TaskPriority): "default" | "secondary" | "destructive" | "outline" => {
+    switch (priority) {
+      case 'High': return 'destructive';
+      case 'Medium': return 'default';
+      case 'Low': return 'secondary';
+      default: return 'secondary';
+    }
+  };
 
   const isCurrentUserAnAssignee = !!(currentUser && task && task.assignee_ids && task.assignee_ids.includes(currentUser.id));
   const canMarkCompleted = isCurrentUserAnAssignee && task && (task.status === 'In Progress' || task.status === 'Pending');
@@ -376,9 +435,29 @@ export default function TaskDetailPage() {
   const canLogTime = isCurrentUserAnAssignee && !isAdmin && task && (task.status === 'In Progress' || task.status === 'Pending');
   const canStartTask = (isCurrentUserAnAssignee || isAdmin) && task && task.status === 'Pending';
 
-  if (isLoading) { /* ... */ return <div>Loading...</div>; }
-  if (error && !task) { /* ... */  return <div>Error: {error}</div>; }
-  if (!task) { /* ... */ return <div>Task not found.</div>; }
+  if (isLoading) {
+    return <div className="flex justify-center items-center h-64"><Loader2 className="h-8 w-8 animate-spin text-primary" /> Loading task details...</div>;
+  }
+  if (error && !task) {
+    return (
+      <div className="flex flex-col items-center justify-center h-64 text-destructive">
+        <AlertTriangle className="w-12 h-12 mb-4" />
+        <h2 className="text-xl font-semibold mb-2">Error Loading Task</h2>
+        <p>{error}</p>
+        <Button variant="outline" onClick={() => router.push('/tasks')} className="mt-4">Back to Tasks</Button>
+      </div>
+    );
+  }
+  if (!task) {
+    return (
+        <div className="flex flex-col items-center justify-center h-64 text-muted-foreground">
+        <Briefcase className="w-12 h-12 mb-4" />
+        <h2 className="text-xl font-semibold mb-2">Task Not Found</h2>
+        <p>The task you are looking for does not exist or could not be loaded.</p>
+        <Button variant="outline" onClick={() => router.push('/tasks')} className="mt-4">Back to Tasks</Button>
+      </div>
+    );
+  }
 
   return (
     <div className="max-w-4xl mx-auto space-y-6">
@@ -395,7 +474,6 @@ export default function TaskDetailPage() {
           <CardDescription>Created on {task.createdAt ? format(parseISO(task.createdAt), 'PPP') : 'N/A'}</CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
-          {/* ... existing task details display ... */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
             <div className="flex items-start">
                 <Users className="w-4 h-4 mr-2 mt-0.5 text-muted-foreground flex-shrink-0" />
@@ -425,7 +503,31 @@ export default function TaskDetailPage() {
           </div>
         </CardContent>
         <CardFooter className="flex flex-col sm:flex-row justify-end items-center gap-2 pt-4 border-t">
-            {/* ... existing buttons ... */}
+            {isAdmin && (
+              <Button variant="outline" size="sm" onClick={() => router.push(`/tasks/edit/${task.id}`)} disabled={isUpdatingStatus}>
+                <Edit3 className="mr-2 h-4 w-4" /> Edit Task
+              </Button>
+            )}
+            {canStartTask && (
+              <Button size="sm" onClick={() => handleUpdateStatus('In Progress')} disabled={isUpdatingStatus}>
+                <Clock className="mr-2 h-4 w-4" /> Start Task
+              </Button>
+            )}
+            {canMarkCompleted && (
+              <Button size="sm" onClick={() => handleUpdateStatus('Completed')} disabled={isUpdatingStatus}>
+                <CheckCircle className="mr-2 h-4 w-4" /> Mark as Completed
+              </Button>
+            )}
+            {canAdminApprove && (
+              <Button size="sm" className="bg-green-600 hover:bg-green-700" onClick={() => handleUpdateStatus('Approved')} disabled={isUpdatingStatus}>
+                <ThumbsUp className="mr-2 h-4 w-4" /> Approve
+              </Button>
+            )}
+            {canAdminReject && (
+              <Button variant="destructive" size="sm" onClick={() => handleUpdateStatus('In Progress')} disabled={isUpdatingStatus}>
+                <RotateCcw className="mr-2 h-4 w-4" /> Revert to In Progress
+              </Button>
+            )}
         </CardFooter>
       </Card>
 
@@ -438,13 +540,28 @@ export default function TaskDetailPage() {
           <Card>
             <CardHeader><CardTitle>Comments</CardTitle></CardHeader>
             <CardContent className="space-y-4">
-              {/* ... existing comments display ... */}
+              {(task.comments || []).length === 0 && <p className="text-muted-foreground text-sm">No comments yet.</p>}
+              {(task.comments || []).slice().reverse().map(comment => (
+                <div key={comment.id} className="flex items-start space-x-3">
+                  <Avatar className="h-8 w-8" data-ai-hint="commenter avatar">
+                    <AvatarImage src={comment.userAvatar || `https://placehold.co/32x32.png`} />
+                    <AvatarFallback>{comment.userName?.substring(0,1) || 'U'}</AvatarFallback>
+                  </Avatar>
+                  <div className="flex-1">
+                    <div className="flex items-center justify-between">
+                      <p className="text-sm font-medium">{comment.userName || 'Unknown User'}</p>
+                      <p className="text-xs text-muted-foreground">{format(parseISO(comment.createdAt), 'MMM d, yyyy HH:mm')}</p>
+                    </div>
+                    <p className="text-sm text-muted-foreground whitespace-pre-wrap">{comment.comment}</p>
+                  </div>
+                </div>
+              ))}
               {currentUser && supabase && (
                 <>
                   <Separator className="my-6" />
                   <div className="space-y-2 relative">
                     <Popover open={mentionPopoverOpen} onOpenChange={setMentionPopoverOpen}>
-                        <PopoverAnchor asChild>
+                        <PopoverTrigger asChild>
                             <Textarea
                               ref={textareaRef}
                               placeholder="Add a comment... Type @ to mention users."
@@ -452,15 +569,14 @@ export default function TaskDetailPage() {
                               onChange={handleCommentChange}
                               rows={3}
                               disabled={isSubmittingComment}
-                              className="pr-10" // Make space for potential @ icon
+                              className="pr-10" 
                             />
-                        </PopoverAnchor>
-                        {/* <AtSign className="absolute top-3 right-3 h-4 w-4 text-muted-foreground pointer-events-none" /> */}
+                        </PopoverTrigger>
                         <PopoverContent 
                             className="w-[300px] p-0" 
-                            onOpenAutoFocus={(e) => e.preventDefault()} // Prevent stealing focus
-                            align="start" // Align to start of textarea
-                            side="top"    // Show above if space, else below
+                            onOpenAutoFocus={(e) => e.preventDefault()} 
+                            align="start" 
+                            side="top"    
                             sideOffset={5}
                         >
                         <Command>
@@ -510,11 +626,60 @@ export default function TaskDetailPage() {
           </Card>
         </TabsContent>
         <TabsContent value="logs" className="mt-4">
-          {/* ... existing logs tab content ... */}
+           <Card>
+            <CardHeader><CardTitle>Activity Logs</CardTitle></CardHeader>
+            <CardContent className="space-y-4">
+              {(task.logs || []).length === 0 && <p className="text-muted-foreground text-sm">No activity logs yet.</p>}
+              {(task.logs || []).slice().reverse().map(log => (
+                <div key={log.id} className="p-3 border rounded-md bg-muted/20">
+                  <div className="flex items-center justify-between text-xs text-muted-foreground mb-1">
+                    <span>{log.userName || 'Unknown User'} logged {log.hoursSpent} hour(s)</span>
+                    <span>{format(parseISO(log.date), 'MMM d, yyyy HH:mm')}</span>
+                  </div>
+                  <p className="text-sm">{log.workDescription}</p>
+                </div>
+              ))}
+               {canLogTime && supabase && (
+                <>
+                  <Separator className="my-6" />
+                  <Form {...logForm}>
+                    <form onSubmit={logForm.handleSubmit(handleAddLog)} className="space-y-4">
+                      <h4 className="text-md font-semibold">Log New Work</h4>
+                      <FormField
+                        control={logForm.control}
+                        name="hoursSpent"
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormLabel>Hours Spent</FormLabel>
+                            <FormControl><Input type="number" step="0.1" placeholder="e.g., 2.5" {...field} /></FormControl>
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
+                      <FormField
+                        control={logForm.control}
+                        name="workDescription"
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormLabel>Work Description</FormLabel>
+                            <FormControl><Textarea placeholder="Describe the work performed..." {...field} rows={3} /></FormControl>
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
+                      <Button type="submit" disabled={isSubmittingLog}>
+                        {isSubmittingLog && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                        Add Log
+                      </Button>
+                    </form>
+                  </Form>
+                </>
+              )}
+            </CardContent>
+           </Card>
         </TabsContent>
       </Tabs>
     </div>
   );
 }
-
     
