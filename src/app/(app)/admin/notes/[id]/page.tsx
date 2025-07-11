@@ -14,7 +14,6 @@ import { format, parseISO } from 'date-fns';
 import { StickyNote, CalendarDays, Users, UserCircle, Loader2, AlertTriangle, ArrowLeft, Tag } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { supabase } from '@/lib/supabaseClient';
-import 'react-quill/dist/quill.snow.css'; // For rendering styles
 
 interface ProfileMap {
   [userId: string]: Pick<User, 'id' | 'name' | 'avatar'>;
@@ -214,9 +213,8 @@ export default function AdminNoteDetailPage() {
           <Separator />
           <div>
             <h4 className="font-semibold mb-2 text-sm">Content:</h4>
-            <div className="prose prose-sm dark:prose-invert max-w-none p-3 bg-muted/30 rounded-md">
-              <div dangerouslySetInnerHTML={{ __html: note.content || 'No content provided.' }} />
-            </div>
+            <div className="prose prose-sm dark:prose-invert max-w-none p-3 bg-muted/30 rounded-md"
+                 dangerouslySetInnerHTML={{ __html: note.content || 'No content provided.' }} />
           </div>
         </CardContent>
         <CardFooter className="border-t pt-4">

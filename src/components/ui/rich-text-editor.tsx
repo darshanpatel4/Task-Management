@@ -1,13 +1,23 @@
 
 'use client';
 
-import React from 'react';
-import 'react-quill/dist/quill.snow.css';
-import dynamic from 'next/dynamic';
-
-// Dynamically import ReactQuill with SSR turned off.
-// This is crucial for components that are not compatible with server-side rendering.
-const ReactQuill = dynamic(() => import('react-quill'), { ssr: false });
+import { useEditor, EditorContent, type Editor } from '@tiptap/react';
+import StarterKit from '@tiptap/starter-kit';
+import {
+  Bold,
+  Italic,
+  Strikethrough,
+  List,
+  ListOrdered,
+  Heading1,
+  Heading2,
+  Heading3,
+  Paintbrush,
+} from 'lucide-react';
+import { Toggle } from '@/components/ui/toggle';
+import { Separator } from '@/components/ui/separator';
+import Color from '@tiptap/extension-color';
+import TextStyle from '@tiptap/extension-text-style';
 
 interface RichTextEditorProps {
   value: string;
@@ -16,47 +26,136 @@ interface RichTextEditorProps {
   className?: string;
 }
 
-const RichTextEditor = ({ value, onChange, placeholder, className }: RichTextEditorProps) => {
-  const [isMounted, setIsMounted] = React.useState(false);
-
-  // This useEffect hook ensures that the component only renders on the client side.
-  // The 'isMounted' state will be false on the server and true on the client after mounting.
-  React.useEffect(() => {
-    setIsMounted(true);
-  }, []);
-
-  const modules = {
-    toolbar: [
-      [{ 'header': [1, 2, 3, 4, 5, 6, false] }],
-      [{ 'size': ['small', false, 'large', 'huge'] }],
-      ['bold', 'italic', 'underline', 'strike'],
-      [{ 'color': [] }, { 'background': [] }],
-      [{ 'list': 'ordered'}, { 'list': 'bullet' }],
-      [{ 'indent': '-1'}, { 'indent': '+1' }],
-      ['link'],
-      ['clean']
-    ],
-  };
-
-  // Only render the ReactQuill component if we are on the client side.
-  if (!isMounted) {
-    // You can render a placeholder or loader here while the component is mounting.
-    return (
-        <div className="flex justify-center items-center h-40 border rounded-md bg-muted/50">
-            <p>Loading Editor...</p>
-        </div>
-    );
+const Toolbar = ({ editor }: { editor: Editor | null }) => {
+  if (!editor) {
+    return null;
   }
 
   return (
-    <div className={className}>
-      <ReactQuill
-        theme="snow"
-        value={value}
-        onChange={onChange}
-        modules={modules}
-        placeholder={placeholder}
-      />
+    <div className="flex flex-wrap items-center gap-1 rounded-t-md border border-input bg-transparent p-2">
+      <Toggle
+        size="sm"
+        pressed={editor.isActive('bold')}
+        onPressedChange={() => editor.chain().focus().toggleBold().run()}
+        aria-label="Toggle bold"
+      >
+        <Bold className="h-4 w-4" />
+      </Toggle>
+      <Toggle
+        size="sm"
+        pressed={editor.isActive('italic')}
+        onPressedChange={() => editor.chain().focus().toggleItalic().run()}
+        aria-label="Toggle italic"
+      >
+        <Italic className="h-4 w-4" />
+      </Toggle>
+      <Toggle
+        size="sm"
+        pressed={editor.isActive('strike')}
+        onPressedChange={() => editor.chain().focus().toggleStrike().run()}
+        aria-label="Toggle strikethrough"
+      >
+        <Strikethrough className="h-4 w-4" />
+      </Toggle>
+      <Separator orientation="vertical" className="h-8" />
+      <Toggle
+        size="sm"
+        pressed={editor.isActive('heading', { level: 1 })}
+        onPressedChange={() =>
+          editor.chain().focus().toggleHeading({ level: 1 }).run()
+        }
+        aria-label="Toggle Heading 1"
+      >
+        <Heading1 className="h-4 w-4" />
+      </Toggle>
+      <Toggle
+        size="sm"
+        pressed={editor.isActive('heading', { level: 2 })}
+        onPressedChange={() =>
+          editor.chain().focus().toggleHeading({ level: 2 }).run()
+        }
+        aria-label="Toggle Heading 2"
+      >
+        <Heading2 className="h-4 w-4" />
+      </Toggle>
+      <Toggle
+        size="sm"
+        pressed={editor.isActive('heading', { level: 3 })}
+        onPressedChange={() =>
+          editor.chain().focus().toggleHeading({ level: 3 }).run()
+        }
+        aria-label="Toggle Heading 3"
+      >
+        <Heading3 className="h-4 w-4" />
+      </Toggle>
+      <Separator orientation="vertical" className="h-8" />
+      <Toggle
+        size="sm"
+        pressed={editor.isActive('bulletList')}
+        onPressedChange={() => editor.chain().focus().toggleBulletList().run()}
+        aria-label="Toggle bullet list"
+      >
+        <List className="h-4 w-4" />
+      </Toggle>
+      <Toggle
+        size="sm"
+        pressed={editor.isActive('orderedList')}
+        onPressedChange={() => editor.chain().focus().toggleOrderedList().run()}
+        aria-label="Toggle ordered list"
+      >
+        <ListOrdered className="h-4 w-4" />
+      </Toggle>
+      <Separator orientation="vertical" className="h-8" />
+      <div className="flex items-center gap-1">
+        <label htmlFor="color-picker" className="sr-only">
+          Text color
+        </label>
+        <input
+          id="color-picker"
+          type="color"
+          className="h-8 w-8 rounded-md border-none bg-transparent p-1 [&::-webkit-color-swatch-wrapper]:p-0 [&::-webkit-color-swatch]:rounded [&::-webkit-color-swatch]:border-none"
+          value={editor.getAttributes('textStyle').color || '#000000'}
+          onInput={(event) =>
+            editor.chain().focus().setColor(event.currentTarget.value).run()
+          }
+          aria-label="Set text color"
+        />
+      </div>
+    </div>
+  );
+};
+
+
+const RichTextEditor = ({
+  value,
+  onChange,
+  placeholder,
+  className,
+}: RichTextEditorProps) => {
+  const editor = useEditor({
+    extensions: [
+      StarterKit.configure({
+        // Disable extensions as needed
+      }),
+      TextStyle,
+      Color,
+    ],
+    content: value,
+    onUpdate: ({ editor }) => {
+      onChange(editor.getHTML());
+    },
+    editorProps: {
+      attributes: {
+        class:
+          'prose dark:prose-invert prose-sm sm:prose-base min-h-[150px] w-full max-w-none rounded-b-md border border-input bg-transparent px-3 py-2 text-base ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50',
+      },
+    },
+  });
+
+  return (
+    <div className={cn('flex flex-col', className)}>
+      <Toolbar editor={editor} />
+      <EditorContent editor={editor} placeholder={placeholder} />
     </div>
   );
 };

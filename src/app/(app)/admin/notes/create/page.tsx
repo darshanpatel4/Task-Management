@@ -282,9 +282,8 @@ export default function CreateNotePage() {
                     <FormControl>
                         <RichTextEditor 
                             value={field.value} 
-                            onChange={(value) => field.onChange(value === '<p><br></p>' ? '' : value)}
+                            onChange={field.onChange}
                             placeholder="Write your note here..."
-                            className="bg-background"
                         />
                     </FormControl>
                     <FormMessage />

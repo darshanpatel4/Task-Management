@@ -16,8 +16,6 @@ import Link from 'next/link';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Button } from '@/components/ui/button';
-import 'react-quill/dist/quill.snow.css'; // For rendering styles
-
 
 interface ProfileMap {
   [userId: string]: Pick<User, 'id' | 'name' | 'avatar'>;
@@ -227,9 +225,8 @@ export default function MyNotesPage() {
                       </CardDescription>
                   </CardHeader>
                   <CardContent>
-                    <div className="prose prose-sm dark:prose-invert max-w-none">
-                      <div dangerouslySetInnerHTML={{ __html: note.content || '' }} />
-                    </div>
+                    <div className="prose prose-sm dark:prose-invert max-w-none"
+                         dangerouslySetInnerHTML={{ __html: note.content || '' }} />
                   </CardContent>
                 </Card>
               ))}
