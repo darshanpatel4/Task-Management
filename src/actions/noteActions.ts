@@ -1,7 +1,7 @@
 
 'use server';
 
-import { createClient } from '@supabase/supabase-js';
+import { supabaseAdmin } from './adminUserActions'; // Import the centralized admin client
 import { z } from 'zod';
 
 const requestNoteEditAccessSchema = z.object({
@@ -15,15 +15,13 @@ interface RequestEditAccessResult {
   message: string;
 }
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-const supabaseServiceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
 export async function requestNoteEditAccess(formData: {
   noteId: string;
   requesterName: string;
   requesterEmail: string;
 }): Promise<RequestEditAccessResult> {
-  if (!supabaseUrl || !supabaseServiceRoleKey) {
+  if (!supabaseAdmin) {
     const errorMsg = 'Server environment for database access is not configured.';
     console.error(errorMsg);
     return { success: false, message: errorMsg };
@@ -36,7 +34,6 @@ export async function requestNoteEditAccess(formData: {
   }
 
   const { noteId, requesterName, requesterEmail } = validation.data;
-  const supabaseAdmin = createClient(supabaseUrl, supabaseServiceRoleKey);
 
   try {
     const { error } = await supabaseAdmin.from('note_edit_requests').insert([

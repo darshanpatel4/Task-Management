@@ -34,9 +34,12 @@ if (supabaseUrl && supabaseServiceRoleKey) {
   });
 } else {
   console.error(
-    'Supabase URL or Service Role Key is not defined. Admin user creation will fail.'
+    'Supabase URL or Service Role Key is not defined. Admin actions will fail.'
   );
 }
+
+export { supabaseAdmin };
+
 
 export async function adminCreateUser(formData: {
   email: string;
