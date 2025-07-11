@@ -1,6 +1,6 @@
 
 'use server';
-
+import 'dotenv/config'; // Make sure environment variables are loaded
 import { supabase } from '@/lib/supabaseClient';
 import type { User } from '@/types';
 import sgMail from '@sendgrid/mail';
@@ -182,4 +182,3 @@ function wrapHtmlContent(content: string, title: string = "Notification"): strin
     </html>
   `;
 }
-
