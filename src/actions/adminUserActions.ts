@@ -38,6 +38,7 @@ if (supabaseUrl && supabaseServiceRoleKey) {
   );
 }
 
+// Export the centralized admin client for other server actions to use
 export { supabaseAdmin };
 
 
