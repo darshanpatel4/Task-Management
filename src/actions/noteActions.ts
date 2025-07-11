@@ -1,7 +1,7 @@
 
 'use server';
 
-import 'dotenv/config';
+import 'dotenv/config'; // Force load environment variables for this server action
 import { supabaseAdmin } from '@/lib/supabaseAdmin';
 import { z } from 'zod';
 
