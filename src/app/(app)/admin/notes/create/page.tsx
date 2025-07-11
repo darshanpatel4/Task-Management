@@ -157,7 +157,7 @@ export default function CreateNotePage() {
                 let specificErrorMsg = "Failed to send notifications to recipients.";
                 if ((notificationError as any)?.code === '42501') {
                     specificErrorMsg = "Failed to send notifications due to database permissions (RLS). Please check 'notifications' table policies for admin inserts of type 'new_note_received'.";
-                } else if ((notificationError as any)?.message?.includes("column \\"note_id\\" of relation \\"notifications\\" does not exist")) {
+                } else if ((notificationError as any)?.message?.includes('column "note_id" of relation "notifications" does not exist')) {
                     specificErrorMsg = "Failed to send notifications: The 'note_id' column is missing in the 'notifications' table. Please run the database migration to add it.";
                 }
                  else if ((notificationError as any)?.message) {
@@ -343,4 +343,3 @@ export default function CreateNotePage() {
     </Card>
   );
 }
-
