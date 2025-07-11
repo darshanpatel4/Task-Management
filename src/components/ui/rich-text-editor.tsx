@@ -1,20 +1,17 @@
 'use client';
 
 import React from 'react';
-import dynamic from 'next/dynamic';
 import 'react-quill/dist/quill.snow.css'; // Import Quill's snow theme CSS
+import type { UnprivilegedEditor } from 'react-quill';
+import type { Sources } from 'quill';
 
 // Dynamically import ReactQuill to ensure it's only loaded on the client side.
-// This is crucial for libraries that are not SSR-compatible.
-const ReactQuill = dynamic(() => import('react-quill'), { 
-  ssr: false,
-  // You can add a loading component here if you wish
-  // loading: () => <p>Loading editor...</p>, 
-});
+// This is the standard and correct way to handle components that are not SSR-compatible.
+const ReactQuill = React.lazy(() => import('react-quill'));
 
 interface RichTextEditorProps {
   value: string;
-  onChange: (value: string) => void;
+  onChange: (value: string, delta: any, source: Sources, editor: UnprivilegedEditor) => void;
   placeholder?: string;
   className?: string;
 }
@@ -22,7 +19,7 @@ interface RichTextEditorProps {
 const RichTextEditor = ({ value, onChange, placeholder, className }: RichTextEditorProps) => {
   const modules = {
     toolbar: [
-      [{ 'header': [1, 2, 3, false] }],
+      [{ 'header': [1, 2, 3, 4, 5, 6, false] }],
       [{ 'size': ['small', false, 'large', 'huge'] }],
       ['bold', 'italic', 'underline', 'strike'],
       [{ 'color': [] }, { 'background': [] }],
@@ -35,13 +32,15 @@ const RichTextEditor = ({ value, onChange, placeholder, className }: RichTextEdi
 
   return (
     <div className={className}>
-      <ReactQuill
-        theme="snow"
-        value={value}
-        onChange={onChange}
-        modules={modules}
-        placeholder={placeholder}
-      />
+      <React.Suspense fallback={<div>Loading editor...</div>}>
+        <ReactQuill
+          theme="snow"
+          value={value}
+          onChange={onChange}
+          modules={modules}
+          placeholder={placeholder}
+        />
+      </React.Suspense>
     </div>
   );
 };
