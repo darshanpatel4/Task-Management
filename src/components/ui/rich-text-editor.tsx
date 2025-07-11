@@ -18,6 +18,7 @@ import { Toggle } from '@/components/ui/toggle';
 import { Separator } from '@/components/ui/separator';
 import Color from '@tiptap/extension-color';
 import TextStyle from '@tiptap/extension-text-style';
+import { cn } from '@/lib/utils';
 
 interface RichTextEditorProps {
   value: string;
