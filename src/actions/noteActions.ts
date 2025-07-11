@@ -3,6 +3,7 @@
 
 import { supabaseAdmin } from '@/lib/supabaseAdmin';
 import { z } from 'zod';
+import 'dotenv/config'; // Make sure environment variables are loaded
 
 const requestNoteEditAccessSchema = z.object({
   noteId: z.string().uuid('Invalid Note ID format.'),
