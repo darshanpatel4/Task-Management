@@ -1,7 +1,7 @@
 
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, 'react';
 import 'react-quill/dist/quill.snow.css';
 import dynamic from 'next/dynamic';
 
@@ -17,11 +17,11 @@ interface RichTextEditorProps {
 }
 
 const RichTextEditor = ({ value, onChange, placeholder, className }: RichTextEditorProps) => {
-  const [isMounted, setIsMounted] = useState(false);
+  const [isMounted, setIsMounted] = React.useState(false);
 
   // This useEffect hook ensures that the component only renders on the client side.
   // The 'isMounted' state will be false on the server and true on the client after mounting.
-  useEffect(() => {
+  React.useEffect(() => {
     setIsMounted(true);
   }, []);
 
