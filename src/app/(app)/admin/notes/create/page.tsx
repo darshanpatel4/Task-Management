@@ -37,6 +37,7 @@ import { ScrollArea } from '@/components/ui/scroll-area';
 import { sendEmail } from '@/actions/sendEmailAction';
 import RichTextEditor from '@/components/ui/rich-text-editor';
 import { Switch } from '@/components/ui/switch';
+import { cn } from '@/lib/utils';
 
 const noteFormSchema = z.object({
   title: z.string().min(3, { message: 'Title must be at least 3 characters.' }).max(150, { message: 'Title too long.'}),
@@ -410,5 +411,3 @@ export default function CreateNotePage() {
     </Card>
   );
 }
-
-    
