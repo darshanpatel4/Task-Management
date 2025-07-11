@@ -28,7 +28,7 @@ import { useToast } from '@/hooks/use-toast';
 import { Loader2, UserPlus, Briefcase, Lock, Mail, User as UserIcon, Award } from 'lucide-react'; // Added Award for Position
 import { useState } from 'react';
 import type { UserRole } from '@/types';
-import { supabase } from '@/lib/supabaseClient';
+import { adminCreateUser } from '@/actions/adminUserActions';
 
 const userCreateFormSchema = z.object({
   fullName: z.string().min(2, { message: 'Full name must be at least 2 characters.' }),
@@ -74,71 +74,31 @@ export default function AdminCreateUserPage() {
   }
 
   async function onSubmit(values: UserCreateFormValues) {
-    if (!supabase) {
-      toast({
-        title: 'Error',
-        description: 'Supabase client is not available. Please check your configuration.',
-        variant: 'destructive',
-      });
-      return;
-    }
-
     setIsSubmitting(true);
-    try {
-      const { data, error } = await supabase.auth.signUp({
-        email: values.email,
-        password: values.password,
-        options: {
-          data: {
-            full_name: values.fullName,
-            role: values.role,
-            position: values.position || null, // Add position to metadata
-            // avatar_url could be added here if you have a default or collect it
-          },
-        },
+    const result = await adminCreateUser({
+      email: values.email,
+      password: values.password,
+      fullName: values.fullName,
+      role: values.role,
+      // Note: The position is handled by a trigger in Supabase from the user_metadata
+      // We are not passing it directly here, but it's part of the standard user creation flow via metadata.
+      // If we wanted to update it separately, we would add it to the adminCreateUser function.
+    });
+
+    if (result.success) {
+      toast({
+        title: 'User Creation Successful',
+        description: result.message,
       });
-
-      if (error) {
-        // Check for common errors
-        if (error.message.includes('User already registered')) {
-          toast({
-            title: 'Error Creating User',
-            description: 'A user with this email address already exists.',
-            variant: 'destructive',
-          });
-        } else {
-          throw error; // Throw other errors to be caught by the generic catch block
-        }
-      } else if (data.user) {
-        // The on_auth_user_created trigger should handle profile creation.
-        // data.session will be null if email confirmation is required.
-        const message = data.session
-          ? `User ${values.fullName} created successfully and can now log in.`
-          : `User ${values.fullName} registration initiated. Please check their email for confirmation.`;
-
-        toast({
-          title: 'User Creation Initiated',
-          description: message,
-        });
-        router.push('/admin/users'); // Redirect to user list
-      } else {
-        // This case might occur if email confirmation is on, and no session is returned, but user object might be minimal.
-        toast({
-          title: 'User Registration Pending',
-          description: 'The user registration process has started. If email confirmation is enabled, they will need to confirm their email.',
-        });
-        router.push('/admin/users');
-      }
-    } catch (error: any) {
-      console.error('Error creating user:', error);
+      router.push('/admin/users');
+    } else {
       toast({
         title: 'Error Creating User',
-        description: error.message || 'An unexpected error occurred. Please try again.',
+        description: result.message,
         variant: 'destructive',
       });
-    } finally {
-      setIsSubmitting(false);
     }
+    setIsSubmitting(false);
   }
 
   return (
