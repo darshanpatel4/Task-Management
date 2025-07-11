@@ -7,7 +7,7 @@ import { useAuth } from '@/context/AuthContext';
 import type { Note, User, NoteCategory } from '@/types';
 import { Button } from '@/components/ui/button';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { PlusCircle, Eye, Trash2, Loader2, AlertTriangle, StickyNote, Tag, Share2, Globe, Lock } from 'lucide-react';
+import { PlusCircle, Eye, Trash2, Loader2, AlertTriangle, StickyNote, Tag } from 'lucide-react';
 import { format, parseISO } from 'date-fns';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
@@ -42,7 +42,7 @@ export default function ManageNotesPage() {
     try {
       const { data: notesData, error: notesError } = await supabase
         .from('notes')
-        .select('id, title, content, admin_id, recipient_user_ids, created_at, updated_at, category, visibility')
+        .select('id, title, content, admin_id, recipient_user_ids, created_at, updated_at, category')
         .order('created_at', { ascending: false });
 
       if (notesError) throw notesError;
@@ -83,7 +83,6 @@ export default function ManageNotesPage() {
         created_at: note.created_at,
         updated_at: note.updated_at,
         category: note.category as NoteCategory || 'General',
-        visibility: note.visibility || 'private',
       }));
       setNotes(mappedNotes);
 
@@ -141,16 +140,6 @@ export default function ManageNotesPage() {
     }
   };
 
-  const handleShareNote = (noteId: string) => {
-    const url = `${window.location.origin}/notes/${noteId}`;
-    navigator.clipboard.writeText(url).then(() => {
-        toast({ title: "Link Copied!", description: "Public share link has been copied to your clipboard."});
-    }, (err) => {
-        toast({ title: "Error", description: "Could not copy link to clipboard.", variant: "destructive" });
-        console.error('Could not copy text: ', err);
-    });
-  };
-
   if (!isLoading && !isAdmin) {
     return (
       <Card className="w-full max-w-md mx-auto mt-10">
@@ -161,10 +150,6 @@ export default function ManageNotesPage() {
   }
 
   const displayRecipients = (note: Note) => {
-    if (note.visibility === 'public') {
-        return <Badge variant="secondary" className="flex items-center gap-1"><Globe className="h-3 w-3" /> Public</Badge>;
-    }
-
     const { recipient_user_ids, recipient_names } = note;
     if (!recipient_user_ids || recipient_user_ids.length === 0) return <Badge variant="outline">No Recipients</Badge>;
     
@@ -233,7 +218,6 @@ export default function ManageNotesPage() {
               <TableHeader>
                 <TableRow>
                   <TableHead>Title</TableHead>
-                  <TableHead>Visibility</TableHead>
                   <TableHead>Category</TableHead>
                   <TableHead>Sent By</TableHead>
                   <TableHead>Recipients</TableHead>
@@ -246,12 +230,6 @@ export default function ManageNotesPage() {
                   <TableRow key={note.id}>
                     <TableCell className="font-medium max-w-xs truncate">
                       <Link href={`/admin/notes/${note.id}`} className="hover:underline text-primary">{note.title}</Link>
-                    </TableCell>
-                    <TableCell>
-                        <Badge variant={note.visibility === 'public' ? 'default' : 'secondary'} className="capitalize">
-                            {note.visibility === 'public' ? <Globe className="mr-1 h-3 w-3" /> : <Lock className="mr-1 h-3 w-3" />}
-                            {note.visibility}
-                        </Badge>
                     </TableCell>
                      <TableCell>
                       <Badge variant={getCategoryBadgeVariant(note.category)} className="capitalize">
@@ -275,11 +253,6 @@ export default function ManageNotesPage() {
                     <TableCell>{note.created_at ? format(parseISO(note.created_at), 'MMM d, yyyy') : 'N/A'}</TableCell>
                     <TableCell className="text-right">
                       <div className="flex justify-end gap-1">
-                        {note.visibility === 'public' && (
-                            <Button variant="ghost" size="icon" aria-label="Share note" onClick={() => handleShareNote(note.id)}>
-                                <Share2 className="h-4 w-4" />
-                            </Button>
-                        )}
                         <Link href={`/admin/notes/${note.id}`}>
                           <Button variant="ghost" size="icon" aria-label="View note" disabled={!supabase}>
                             <Eye className="h-4 w-4" />

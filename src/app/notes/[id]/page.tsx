@@ -50,14 +50,13 @@ export default function PublicNotePage() {
       // RLS Policy should ensure this only returns notes where visibility = 'public'
       const { data, error: fetchError } = await supabase
         .from('notes')
-        .select('id, title, content, admin_id, created_at, category, visibility')
+        .select('id, title, content, admin_id, created_at, category')
         .eq('id', noteId)
-        .eq('visibility', 'public') // Explicitly query for public notes
         .single();
 
       if (fetchError || !data) {
         if (fetchError?.code === 'PGRST116' || !data) {
-            setError('This note was not found or is not public.');
+            setError('This note was not found or is not available.');
         } else {
             throw fetchError;
         }
@@ -72,7 +71,6 @@ export default function PublicNotePage() {
             created_at: data.created_at,
             updated_at: data.created_at,
             category: data.category as Note['category'],
-            visibility: 'public',
         };
         setNote(fetchedNote);
 
@@ -135,9 +133,6 @@ export default function PublicNotePage() {
                 <CardHeader className="border-b">
                 <div className="flex flex-col sm:flex-row justify-between items-start">
                     <div>
-                        <Badge variant="secondary" className="mb-2">
-                            <Globe className="w-3 h-3 mr-1.5" /> Public Note
-                        </Badge>
                         <CardTitle className="text-2xl md:text-3xl flex items-center">
                             <StickyNote className="w-7 h-7 mr-3 text-primary flex-shrink-0" />
                             {note.title}

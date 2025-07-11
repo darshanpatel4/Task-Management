@@ -97,8 +97,6 @@ export interface NotificationItem {
 export type NoteCategory = 'General' | 'Important' | 'Credentials' | 'Improvement' | 'Action Required';
 export const noteCategories: NoteCategory[] = ['General', 'Important', 'Credentials', 'Improvement', 'Action Required'];
 
-export type NoteVisibility = 'private' | 'public';
-
 export interface Note {
   id: string; // uuid
   title: string;
@@ -110,5 +108,4 @@ export interface Note {
   created_at: string; // ISO date string
   updated_at: string; // ISO date string
   category?: NoteCategory | null; // New category field
-  visibility: NoteVisibility;
 }

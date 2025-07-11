@@ -19,12 +19,12 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { useAuth } from '@/context/AuthContext';
 import { useRouter } from 'next/navigation';
-import type { User, NotificationType, NoteCategory, NoteVisibility } from '@/types';
+import type { User, NotificationType, NoteCategory } from '@/types';
 import { noteCategories } from '@/types';
 import { useToast } from '@/hooks/use-toast';
 import { supabase } from '@/lib/supabaseClient';
 import { useEffect, useState } from 'react';
-import { Loader2, AlertTriangle, Users, ChevronDown, Send, Tag, Globe, Lock } from 'lucide-react';
+import { Loader2, AlertTriangle, Users, ChevronDown, Send, Tag } from 'lucide-react';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -36,17 +36,12 @@ import {
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { sendEmail } from '@/actions/sendEmailAction';
 import RichTextEditor from '@/components/ui/rich-text-editor';
-import { Switch } from '@/components/ui/switch';
 
 const noteFormSchema = z.object({
   title: z.string().min(3, { message: 'Title must be at least 3 characters.' }).max(150, { message: 'Title too long.'}),
   content: z.string().min(10, { message: 'Note content must be at least 10 characters.' }),
-  recipient_user_ids: z.array(z.string()).min(1, { message: 'At least one recipient must be selected for private notes.' }).optional(),
+  recipient_user_ids: z.array(z.string()).min(1, { message: 'At least one recipient must be selected.' }),
   category: z.enum(noteCategories, { required_error: 'Note category is required.' }),
-  visibility: z.enum(['private', 'public'] as [NoteVisibility, ...NoteVisibility[]]).default('private'),
-}).refine(data => data.visibility === 'public' || (data.recipient_user_ids && data.recipient_user_ids.length > 0), {
-    message: 'Recipients must be selected for private notes.',
-    path: ['recipient_user_ids'],
 });
 
 
@@ -69,11 +64,8 @@ export default function CreateNotePage() {
       content: '',
       recipient_user_ids: [],
       category: 'General',
-      visibility: 'private',
     },
   });
-
-  const visibility = form.watch('visibility');
 
   useEffect(() => {
     async function fetchUsers() {
@@ -121,9 +113,8 @@ export default function CreateNotePage() {
         title: values.title,
         content: values.content,
         admin_id: currentUser.id,
-        recipient_user_ids: values.visibility === 'private' ? values.recipient_user_ids : [],
+        recipient_user_ids: values.recipient_user_ids,
         category: values.category,
-        visibility: values.visibility,
       };
 
       const { data: createdNote, error: noteInsertError } = await supabase
@@ -135,11 +126,8 @@ export default function CreateNotePage() {
       if (noteInsertError) throw noteInsertError;
 
       let toastDescription = `Note "${values.title}" has been successfully created.`;
-      if (values.visibility === 'public' && createdNote) {
-        toastDescription += ` Public link is available.`;
-      }
       
-      if (createdNote && values.visibility === 'private' && values.recipient_user_ids && values.recipient_user_ids.length > 0) {
+      if (createdNote && values.recipient_user_ids && values.recipient_user_ids.length > 0) {
         const recipientUserDetails = allUsers.filter(u => values.recipient_user_ids!.includes(u.id));
 
         const notificationsToInsert = recipientUserDetails.map(recipient => ({
@@ -235,7 +223,7 @@ export default function CreateNotePage() {
     <Card className="max-w-4xl mx-auto">
       <CardHeader>
         <CardTitle className="text-2xl">Create New Note</CardTitle>
-        <CardDescription>Compose a note and set its visibility.</CardDescription>
+        <CardDescription>Compose a note and send it to selected recipients.</CardDescription>
       </CardHeader>
       <CardContent>
         {isLoadingData && (
@@ -306,76 +294,48 @@ export default function CreateNotePage() {
 
               <FormField
                 control={form.control}
-                name="visibility"
+                name="recipient_user_ids"
                 render={({ field }) => (
-                  <FormItem className="flex flex-row items-center justify-between rounded-lg border p-4">
-                    <div className="space-y-0.5">
-                      <FormLabel className="text-base flex items-center">
-                        {field.value === 'public' ? <Globe className="mr-2 h-4 w-4" /> : <Lock className="mr-2 h-4 w-4" />}
-                        {field.value === 'public' ? 'Public Note' : 'Private Note'}
-                      </FormLabel>
-                      <FormDescription>
-                        {field.value === 'public' 
-                          ? 'Anyone with the link can view this note.' 
-                          : 'Only selected recipients can view this note.'}
-                      </FormDescription>
-                    </div>
-                    <FormControl>
-                      <Switch
-                        checked={field.value === 'public'}
-                        onCheckedChange={(checked) => field.onChange(checked ? 'public' : 'private')}
-                      />
-                    </FormControl>
+                  <FormItem>
+                    <FormLabel className="flex items-center">
+                      <Users className="mr-2 h-4 w-4 text-muted-foreground" />
+                      Recipients
+                    </FormLabel>
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <Button variant="outline" className="w-full justify-between">
+                          {getRecipientButtonLabel(field.value || [])}
+                          <ChevronDown className="ml-2 h-4 w-4" />
+                        </Button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent className="w-[--radix-dropdown-menu-trigger-width]">
+                        <DropdownMenuLabel>Select Recipients</DropdownMenuLabel>
+                        <DropdownMenuSeparator />
+                        <ScrollArea className="h-48">
+                          {allUsers.length > 0 ? allUsers.map((user) => (
+                            <DropdownMenuCheckboxItem
+                              key={user.id}
+                              checked={(field.value || []).includes(user.id)}
+                              onCheckedChange={(checked) => {
+                                const currentIds = field.value || [];
+                                const newIds = checked
+                                  ? [...currentIds, user.id]
+                                  : currentIds.filter((id) => id !== user.id);
+                                field.onChange(newIds);
+                              }}
+                              onSelect={(e) => e.preventDefault()}
+                            >
+                              {user.name}
+                            </DropdownMenuCheckboxItem>
+                          )) : <DropdownMenuCheckboxItem disabled>No users available</DropdownMenuCheckboxItem>}
+                        </ScrollArea>
+                      </DropdownMenuContent>
+                    </DropdownMenu>
+                    <FormDescription>Select users who will receive this note.</FormDescription>
+                    <FormMessage />
                   </FormItem>
                 )}
               />
-
-              {visibility === 'private' && (
-                <FormField
-                  control={form.control}
-                  name="recipient_user_ids"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel className="flex items-center">
-                        <Users className="mr-2 h-4 w-4 text-muted-foreground" />
-                        Recipients
-                      </FormLabel>
-                      <DropdownMenu>
-                        <DropdownMenuTrigger asChild>
-                          <Button variant="outline" className="w-full justify-between">
-                            {getRecipientButtonLabel(field.value || [])}
-                            <ChevronDown className="ml-2 h-4 w-4" />
-                          </Button>
-                        </DropdownMenuTrigger>
-                        <DropdownMenuContent className="w-[--radix-dropdown-menu-trigger-width]">
-                          <DropdownMenuLabel>Select Recipients</DropdownMenuLabel>
-                          <DropdownMenuSeparator />
-                          <ScrollArea className="h-48">
-                            {allUsers.length > 0 ? allUsers.map((user) => (
-                              <DropdownMenuCheckboxItem
-                                key={user.id}
-                                checked={(field.value || []).includes(user.id)}
-                                onCheckedChange={(checked) => {
-                                  const currentIds = field.value || [];
-                                  const newIds = checked
-                                    ? [...currentIds, user.id]
-                                    : currentIds.filter((id) => id !== user.id);
-                                  field.onChange(newIds);
-                                }}
-                                onSelect={(e) => e.preventDefault()}
-                              >
-                                {user.name}
-                              </DropdownMenuCheckboxItem>
-                            )) : <DropdownMenuCheckboxItem disabled>No users available</DropdownMenuCheckboxItem>}
-                          </ScrollArea>
-                        </DropdownMenuContent>
-                      </DropdownMenu>
-                      <FormDescription>Select users who will receive this note.</FormDescription>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-              )}
               <div className="flex justify-end gap-2 pt-4">
                 <Button type="button" variant="outline" onClick={() => router.back()} disabled={isSubmitting}>Cancel</Button>
                 <Button type="submit" disabled={isSubmitting || isLoadingData}>
