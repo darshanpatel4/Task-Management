@@ -1,22 +1,29 @@
 'use client';
 
-import React from 'react';
-import 'react-quill/dist/quill.snow.css'; // Import Quill's snow theme CSS
-import type { UnprivilegedEditor } from 'react-quill';
-import type { Sources } from 'quill';
+import React, { useState, useEffect } from 'react';
+import 'react-quill/dist/quill.snow.css';
+import dynamic from 'next/dynamic';
 
-// Dynamically import ReactQuill to ensure it's only loaded on the client side.
-// This is the standard and correct way to handle components that are not SSR-compatible.
-const ReactQuill = React.lazy(() => import('react-quill'));
+// Dynamically import ReactQuill with SSR turned off.
+// This is crucial for components that are not compatible with server-side rendering.
+const ReactQuill = dynamic(() => import('react-quill'), { ssr: false });
 
 interface RichTextEditorProps {
   value: string;
-  onChange: (value: string, delta: any, source: Sources, editor: UnprivilegedEditor) => void;
+  onChange: (value: string) => void;
   placeholder?: string;
   className?: string;
 }
 
 const RichTextEditor = ({ value, onChange, placeholder, className }: RichTextEditorProps) => {
+  const [isMounted, setIsMounted] = useState(false);
+
+  // This useEffect hook ensures that the component only renders on the client side.
+  // The 'isMounted' state will be false on the server and true on the client after mounting.
+  useEffect(() => {
+    setIsMounted(true);
+  }, []);
+
   const modules = {
     toolbar: [
       [{ 'header': [1, 2, 3, 4, 5, 6, false] }],
@@ -30,17 +37,25 @@ const RichTextEditor = ({ value, onChange, placeholder, className }: RichTextEdi
     ],
   };
 
+  // Only render the ReactQuill component if we are on the client side.
+  if (!isMounted) {
+    // You can render a placeholder or loader here while the component is mounting.
+    return (
+        <div className="flex justify-center items-center h-40 border rounded-md bg-muted/50">
+            <p>Loading Editor...</p>
+        </div>
+    );
+  }
+
   return (
     <div className={className}>
-      <React.Suspense fallback={<div>Loading editor...</div>}>
-        <ReactQuill
-          theme="snow"
-          value={value}
-          onChange={onChange}
-          modules={modules}
-          placeholder={placeholder}
-        />
-      </React.Suspense>
+      <ReactQuill
+        theme="snow"
+        value={value}
+        onChange={onChange}
+        modules={modules}
+        placeholder={placeholder}
+      />
     </div>
   );
 };
