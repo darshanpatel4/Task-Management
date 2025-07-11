@@ -11,13 +11,13 @@ interface RichTextEditorProps {
   className?: string;
 }
 
-// Dynamically import ReactQuill to ensure it's only loaded on the client side
-const ReactQuill = useMemo(() => dynamic(() => import('react-quill'), { ssr: false }), []);
-
 // Use React.forwardRef to pass a ref to the underlying ReactQuill component.
 // This is the recommended fix for the "findDOMNode is not a function" error in React 18+.
 const RichTextEditor = React.forwardRef<any, RichTextEditorProps>(
   ({ value, onChange, placeholder, className }, ref) => {
+    // Dynamically import ReactQuill inside the component to fix the hook call error.
+    const ReactQuill = useMemo(() => dynamic(() => import('react-quill'), { ssr: false }), []);
+    
     const modules = {
       toolbar: [
         [{ 'header': [1, 2, 3, false] }],
