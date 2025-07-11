@@ -130,3 +130,59 @@ export async function updateNoteContent(formData: {
 
     return { success: true, message: 'Note updated successfully.' };
 }
+
+const requestNoteEditAccessSchema = z.object({
+  noteId: z.string().uuid(),
+  name: z.string().min(2, 'Name is required.'),
+  email: z.string().email('A valid email is required.'),
+});
+
+interface RequestAccessResult {
+    success: boolean;
+    message: string;
+}
+
+export async function requestNoteEditAccess(formData: {
+    noteId: string,
+    name: string,
+    email: string
+}): Promise<RequestAccessResult> {
+    if (!supabaseAdmin) {
+        return { success: false, message: 'Server environment for database access is not configured.' };
+    }
+
+    const validation = requestNoteEditAccessSchema.safeParse(formData);
+    if (!validation.success) {
+        const errorMessages = validation.error.errors.map((e) => e.message).join(', ');
+        return { success: false, message: `Invalid input: ${errorMessages}` };
+    }
+    const { noteId, name, email } = validation.data;
+    
+    try {
+        const { error } = await supabaseAdmin
+            .from('note_edit_requests')
+            .insert({
+                note_id: noteId,
+                requester_name: name,
+                requester_email: email,
+                status: 'pending'
+            });
+
+        if (error) {
+            console.error('Error creating note edit request:', error);
+            if (error.code === '23503') { // Foreign key violation
+                return { success: false, message: 'Could not create request: The specified note does not exist.' };
+            }
+             if (error.message.includes('permission denied')) {
+                return { success: false, message: 'Permission denied. Please check database policies for inserting into note_edit_requests.' };
+            }
+            return { success: false, message: `Database error: ${error.message}` };
+        }
+
+        return { success: true, message: "Your request to edit has been sent to the administrator for approval." };
+
+    } catch (e: any) {
+        console.error('Unexpected error creating edit request:', e);
+        return { success: false, message: `An unexpected error occurred: ${e.message || 'Unknown error'}` };
+    }
+}
