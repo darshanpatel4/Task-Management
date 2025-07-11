@@ -110,3 +110,14 @@ export interface Note {
   category?: NoteCategory | null; // New category field
   visibility?: 'private' | 'public'; // Visibility of the note
 }
+
+export interface NoteEditRequest {
+    id: string; // uuid
+    created_at: string; // ISO string
+    note_id: string; // uuid
+    note_title?: string; // denormalized for display
+    requester_name: string;
+    requester_email: string;
+    status: 'pending' | 'approved' | 'rejected';
+    edit_token?: string | null; // uuid
+}

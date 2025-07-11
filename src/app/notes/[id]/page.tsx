@@ -7,29 +7,47 @@ import type { Note, User } from '@/types';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
-import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
 import { format, parseISO } from 'date-fns';
-import { StickyNote, CalendarDays, UserCircle, Loader2, AlertTriangle, Globe } from 'lucide-react';
+import { StickyNote, UserCircle, Loader2, AlertTriangle, Edit } from 'lucide-react';
 import { supabase } from '@/lib/supabaseClient';
 import Link from 'next/link';
-
-// This is a public page, so we don't use useAuth() for access control.
-// Data fetching rules (RLS) in Supabase will handle security.
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
+import { useForm } from 'react-hook-form';
+import { zodResolver } from '@hookform/resolvers/zod';
+import * as z from 'zod';
+import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from '@/components/ui/form';
+import { Input } from '@/components/ui/input';
+import { useToast } from '@/hooks/use-toast';
+import { requestNoteEditAccess } from '@/actions/noteActions';
 
 interface ProfileMap {
   [userId: string]: Pick<User, 'id' | 'name' | 'avatar'>;
 }
 
+const requestFormSchema = z.object({
+  name: z.string().min(2, 'Please enter your full name.'),
+  email: z.string().email('Please enter a valid email address.'),
+});
+
+type RequestFormValues = z.infer<typeof requestFormSchema>;
+
 export default function PublicNotePage() {
   const params = useParams();
   const noteId = params.id as string;
+  const { toast } = useToast();
 
   const [note, setNote] = useState<Note | null>(null);
   const [adminProfile, setAdminProfile] = useState<Pick<User, 'id' | 'name' | 'avatar'> | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  
+  const [isSubmittingRequest, setIsSubmittingRequest] = useState(false);
+  const [dialogOpen, setDialogOpen] = useState(false);
+
+  const form = useForm<RequestFormValues>({
+    resolver: zodResolver(requestFormSchema),
+    defaultValues: { name: '', email: '' },
+  });
 
   const fetchPublicNote = useCallback(async () => {
     if (!noteId) {
@@ -47,7 +65,6 @@ export default function PublicNotePage() {
     setError(null);
 
     try {
-      // RLS Policy should ensure this only returns notes where visibility = 'public'
       const { data, error: fetchError } = await supabase
         .from('notes')
         .select('id, title, content, admin_id, created_at, category, visibility')
@@ -76,7 +93,6 @@ export default function PublicNotePage() {
         };
         setNote(fetchedNote);
 
-        // Fetch admin profile
         const { data: profileData, error: profileError } = await supabase
           .from('profiles')
           .select('id, full_name, avatar_url')
@@ -105,6 +121,32 @@ export default function PublicNotePage() {
   useEffect(() => {
     fetchPublicNote();
   }, [fetchPublicNote]);
+  
+  async function onSubmit(values: RequestFormValues) {
+    if (!noteId) return;
+    setIsSubmittingRequest(true);
+    const result = await requestNoteEditAccess({
+      noteId,
+      requesterName: values.name,
+      requesterEmail: values.email,
+    });
+
+    if (result.success) {
+      toast({
+        title: 'Request Sent!',
+        description: 'Your request to edit this note has been sent to the administrator for approval.',
+      });
+      setDialogOpen(false);
+      form.reset();
+    } else {
+      toast({
+        title: 'Error',
+        description: result.message || 'Could not submit your request.',
+        variant: 'destructive',
+      });
+    }
+    setIsSubmittingRequest(false);
+  }
 
   if (isLoading) {
     return (
@@ -140,9 +182,61 @@ export default function PublicNotePage() {
                             {note.title}
                         </CardTitle>
                     </div>
-                     <p className="text-xs text-muted-foreground mt-2 sm:mt-0 pt-1">
+                    <div className="flex flex-col items-end gap-2 mt-2 sm:mt-0">
+                      <p className="text-xs text-muted-foreground pt-1">
                         Published on {note.created_at ? format(parseISO(note.created_at), 'PPP') : 'N/A'}
-                     </p>
+                      </p>
+                       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
+                        <DialogTrigger asChild>
+                           <Button variant="outline" size="sm">
+                              <Edit className="mr-2 h-4 w-4" />
+                              Request to Edit
+                            </Button>
+                        </DialogTrigger>
+                        <DialogContent>
+                          <DialogHeader>
+                            <DialogTitle>Request Edit Access</DialogTitle>
+                            <DialogDescription>
+                              Enter your name and email. An administrator will review your request. If approved, you will receive an edit link via email.
+                            </DialogDescription>
+                          </DialogHeader>
+                          <Form {...form}>
+                            <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
+                              <FormField
+                                control={form.control}
+                                name="name"
+                                render={({ field }) => (
+                                  <FormItem>
+                                    <FormLabel>Your Name</FormLabel>
+                                    <FormControl>
+                                      <Input placeholder="Jane Doe" {...field} />
+                                    </FormControl>
+                                    <FormMessage />
+                                  </FormItem>
+                                )}
+                              />
+                               <FormField
+                                control={form.control}
+                                name="email"
+                                render={({ field }) => (
+                                  <FormItem>
+                                    <FormLabel>Your Email</FormLabel>
+                                    <FormControl>
+                                      <Input type="email" placeholder="you@example.com" {...field} />
+                                    </FormControl>
+                                    <FormMessage />
+                                  </FormItem>
+                                )}
+                              />
+                              <Button type="submit" className="w-full" disabled={isSubmittingRequest}>
+                                {isSubmittingRequest && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                                Submit Request
+                              </Button>
+                            </form>
+                          </Form>
+                        </DialogContent>
+                      </Dialog>
+                    </div>
                 </div>
                 {adminProfile && (
                      <CardDescription className="pt-2">
