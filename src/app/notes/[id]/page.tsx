@@ -50,13 +50,14 @@ export default function PublicNotePage() {
       // RLS Policy should ensure this only returns notes where visibility = 'public'
       const { data, error: fetchError } = await supabase
         .from('notes')
-        .select('id, title, content, admin_id, created_at, category')
+        .select('id, title, content, admin_id, created_at, category, visibility')
         .eq('id', noteId)
+        .eq('visibility', 'public')
         .single();
 
       if (fetchError || !data) {
         if (fetchError?.code === 'PGRST116' || !data) {
-            setError('This note was not found or is not available.');
+            setError('This note was not found or is not available for public viewing.');
         } else {
             throw fetchError;
         }
@@ -71,6 +72,7 @@ export default function PublicNotePage() {
             created_at: data.created_at,
             updated_at: data.created_at,
             category: data.category as Note['category'],
+            visibility: data.visibility as Note['visibility'],
         };
         setNote(fetchedNote);
 

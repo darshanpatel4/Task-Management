@@ -108,4 +108,5 @@ export interface Note {
   created_at: string; // ISO date string
   updated_at: string; // ISO date string
   category?: NoteCategory | null; // New category field
+  visibility?: 'private' | 'public'; // Visibility of the note
 }

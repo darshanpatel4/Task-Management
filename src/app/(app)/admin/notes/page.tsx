@@ -7,7 +7,7 @@ import { useAuth } from '@/context/AuthContext';
 import type { Note, User, NoteCategory } from '@/types';
 import { Button } from '@/components/ui/button';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { PlusCircle, Eye, Trash2, Loader2, AlertTriangle, StickyNote, Tag } from 'lucide-react';
+import { PlusCircle, Eye, Trash2, Loader2, AlertTriangle, StickyNote, Tag, Share2, Globe, EyeOff } from 'lucide-react';
 import { format, parseISO } from 'date-fns';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
@@ -42,7 +42,7 @@ export default function ManageNotesPage() {
     try {
       const { data: notesData, error: notesError } = await supabase
         .from('notes')
-        .select('id, title, content, admin_id, recipient_user_ids, created_at, updated_at, category')
+        .select('id, title, content, admin_id, recipient_user_ids, created_at, updated_at, category, visibility')
         .order('created_at', { ascending: false });
 
       if (notesError) throw notesError;
@@ -83,6 +83,7 @@ export default function ManageNotesPage() {
         created_at: note.created_at,
         updated_at: note.updated_at,
         category: note.category as NoteCategory || 'General',
+        visibility: note.visibility as Note['visibility'] || 'private',
       }));
       setNotes(mappedNotes);
 
@@ -98,6 +99,15 @@ export default function ManageNotesPage() {
   useEffect(() => {
     fetchNotesAndProfiles();
   }, [fetchNotesAndProfiles]);
+
+  const handleCopyLink = (noteId: string) => {
+    const url = `${window.location.origin}/notes/${noteId}`;
+    navigator.clipboard.writeText(url);
+    toast({
+      title: 'Link Copied',
+      description: 'The public link to the note has been copied to your clipboard.',
+    });
+  };
 
   const handleDeleteNote = async (noteId: string, noteTitle: string) => {
     if (!supabase) {
@@ -218,8 +228,8 @@ export default function ManageNotesPage() {
               <TableHeader>
                 <TableRow>
                   <TableHead>Title</TableHead>
+                  <TableHead>Visibility</TableHead>
                   <TableHead>Category</TableHead>
-                  <TableHead>Sent By</TableHead>
                   <TableHead>Recipients</TableHead>
                   <TableHead>Created At</TableHead>
                   <TableHead className="text-right">Actions</TableHead>
@@ -231,19 +241,19 @@ export default function ManageNotesPage() {
                     <TableCell className="font-medium max-w-xs truncate">
                       <Link href={`/admin/notes/${note.id}`} className="hover:underline text-primary">{note.title}</Link>
                     </TableCell>
+                    <TableCell>
+                      <Badge variant={note.visibility === 'public' ? 'default' : 'secondary'} className="capitalize">
+                        {note.visibility === 'public' ? 
+                          <Globe className="mr-1 h-3 w-3" /> : 
+                          <EyeOff className="mr-1 h-3 w-3" />
+                        }
+                        {note.visibility}
+                      </Badge>
+                    </TableCell>
                      <TableCell>
                       <Badge variant={getCategoryBadgeVariant(note.category)} className="capitalize">
                         <Tag className="mr-1 h-3 w-3" /> {note.category || 'General'}
                       </Badge>
-                    </TableCell>
-                    <TableCell>
-                      <div className="flex items-center gap-2">
-                        <Avatar className="h-7 w-7 hidden sm:flex" data-ai-hint="admin avatar small">
-                          <AvatarImage src={profilesMap[note.admin_id]?.avatar || `https://placehold.co/30x30.png`} />
-                          <AvatarFallback>{profilesMap[note.admin_id]?.name?.substring(0,1) || 'A'}</AvatarFallback>
-                        </Avatar>
-                        <span>{profilesMap[note.admin_id]?.name || 'Unknown Admin'}</span>
-                      </div>
                     </TableCell>
                     <TableCell className="max-w-sm">
                         <div className="flex flex-wrap gap-1">
@@ -253,6 +263,11 @@ export default function ManageNotesPage() {
                     <TableCell>{note.created_at ? format(parseISO(note.created_at), 'MMM d, yyyy') : 'N/A'}</TableCell>
                     <TableCell className="text-right">
                       <div className="flex justify-end gap-1">
+                        {note.visibility === 'public' && (
+                          <Button variant="ghost" size="icon" aria-label="Copy public link" onClick={() => handleCopyLink(note.id)}>
+                            <Share2 className="h-4 w-4" />
+                          </Button>
+                        )}
                         <Link href={`/admin/notes/${note.id}`}>
                           <Button variant="ghost" size="icon" aria-label="View note" disabled={!supabase}>
                             <Eye className="h-4 w-4" />
