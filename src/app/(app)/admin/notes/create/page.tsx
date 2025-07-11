@@ -15,7 +15,6 @@ import {
   FormMessage,
 } from '@/components/ui/form';
 import { Input } from '@/components/ui/input';
-import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { useAuth } from '@/context/AuthContext';
@@ -36,6 +35,7 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { sendEmail } from '@/actions/sendEmailAction';
+import RichTextEditor from '@/components/ui/rich-text-editor';
 
 const noteFormSchema = z.object({
   title: z.string().min(3, { message: 'Title must be at least 3 characters.' }).max(150, { message: 'Title too long.'}),
@@ -157,10 +157,9 @@ export default function CreateNotePage() {
                 let specificErrorMsg = "Failed to send notifications to recipients.";
                 if ((notificationError as any)?.code === '42501') {
                     specificErrorMsg = "Failed to send notifications due to database permissions (RLS). Please check 'notifications' table policies for admin inserts of type 'new_note_received'.";
-                } else if ((notificationError as any)?.message?.includes('column "note_id" of relation "notifications" does not exist')) {
-                    specificErrorMsg = "Failed to send notifications: The 'note_id' column is missing in the 'notifications' table. Please run the database migration to add it.";
-                }
-                 else if ((notificationError as any)?.message) {
+                } else if ((notificationError as any)?.message?.includes("note_id")) {
+                    specificErrorMsg = "Failed to send notifications: The 'note_id' column may be missing or have an issue in the 'notifications' table.";
+                } else if ((notificationError as any)?.message) {
                     specificErrorMsg += ` Error: ${(notificationError as any).message}`;
                 }
                 
@@ -184,7 +183,7 @@ export default function CreateNotePage() {
                   <p><strong>Category:</strong> ${values.category}</p>
                   <p><strong>Content:</strong></p>
                   <div style="padding: 10px; border: 1px solid #eee; background: #f9f9f9; border-radius: 4px; margin-top: 5px;">
-                    <pre style="white-space: pre-wrap; font-family: inherit; margin: 0;">${values.content}</pre>
+                    ${values.content}
                   </div>
                   <p>You can view this note in the TaskFlow AI application by clicking the button below:</p>
                   <a href="${process.env.NEXT_PUBLIC_APP_URL}/notes#note-${createdNote.id}" class="button">View Note</a>
@@ -220,7 +219,7 @@ export default function CreateNotePage() {
   }
 
   return (
-    <Card className="max-w-2xl mx-auto">
+    <Card className="max-w-4xl mx-auto">
       <CardHeader>
         <CardTitle className="text-2xl">Create New Note</CardTitle>
         <CardDescription>Compose and send a note to selected users.</CardDescription>
@@ -280,7 +279,14 @@ export default function CreateNotePage() {
                 render={({ field }) => (
                   <FormItem>
                     <FormLabel>Note Content</FormLabel>
-                    <FormControl><Textarea placeholder="Write your note here..." {...field} rows={8} /></FormControl>
+                    <FormControl>
+                        <RichTextEditor 
+                            value={field.value} 
+                            onChange={field.onChange}
+                            placeholder="Write your note here..."
+                            className="bg-background"
+                        />
+                    </FormControl>
                     <FormMessage />
                   </FormItem>
                 )}

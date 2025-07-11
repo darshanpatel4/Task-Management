@@ -14,6 +14,7 @@ import { format, parseISO } from 'date-fns';
 import { StickyNote, CalendarDays, Users, UserCircle, Loader2, AlertTriangle, ArrowLeft, Tag } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { supabase } from '@/lib/supabaseClient';
+import 'react-quill/dist/quill.snow.css'; // For rendering styles
 
 interface ProfileMap {
   [userId: string]: Pick<User, 'id' | 'name' | 'avatar'>;
@@ -148,7 +149,7 @@ export default function AdminNoteDetailPage() {
   };
 
   return (
-    <div className="max-w-3xl mx-auto space-y-6">
+    <div className="max-w-4xl mx-auto space-y-6">
        <Button variant="outline" onClick={() => router.push('/admin/notes')} className="mb-4">
         <ArrowLeft className="mr-2 h-4 w-4" /> Back to Notes List
       </Button>
@@ -213,8 +214,8 @@ export default function AdminNoteDetailPage() {
           <Separator />
           <div>
             <h4 className="font-semibold mb-2 text-sm">Content:</h4>
-            <div className="prose prose-sm dark:prose-invert max-w-none p-3 bg-muted/30 rounded-md whitespace-pre-wrap">
-              {note.content || 'No content provided.'}
+            <div className="prose prose-sm dark:prose-invert max-w-none p-3 bg-muted/30 rounded-md">
+              <div dangerouslySetInnerHTML={{ __html: note.content || 'No content provided.' }} />
             </div>
           </div>
         </CardContent>
