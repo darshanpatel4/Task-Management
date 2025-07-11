@@ -2,14 +2,14 @@
 'use client';
 
 import { useEffect, useState, useCallback } from 'react';
-import { useParams } from 'next/navigation';
+import { useParams, useRouter } from 'next/navigation';
 import type { Note, User } from '@/types';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Separator } from '@/components/ui/separator';
 import { format, parseISO } from 'date-fns';
-import { StickyNote, UserCircle, Loader2, AlertTriangle, Edit } from 'lucide-react';
+import { StickyNote, UserCircle, Loader2, AlertTriangle, Edit, Lock } from 'lucide-react';
 import { supabase } from '@/lib/supabaseClient';
 import Link from 'next/link';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
@@ -19,21 +19,17 @@ import * as z from 'zod';
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from '@/components/ui/form';
 import { Input } from '@/components/ui/input';
 import { useToast } from '@/hooks/use-toast';
-import { requestNoteEditAccess } from '@/actions/noteActions';
+import { verifyNotePassword } from '@/actions/noteActions';
 
-interface ProfileMap {
-  [userId: string]: Pick<User, 'id' | 'name' | 'avatar'>;
-}
 
-const requestFormSchema = z.object({
-  name: z.string().min(2, 'Please enter your full name.'),
-  email: z.string().email('Please enter a valid email address.'),
+const passwordFormSchema = z.object({
+  password: z.string().min(1, 'Password cannot be empty.'),
 });
-
-type RequestFormValues = z.infer<typeof requestFormSchema>;
+type PasswordFormValues = z.infer<typeof passwordFormSchema>;
 
 export default function PublicNotePage() {
   const params = useParams();
+  const router = useRouter();
   const noteId = params.id as string;
   const { toast } = useToast();
 
@@ -41,12 +37,13 @@ export default function PublicNotePage() {
   const [adminProfile, setAdminProfile] = useState<Pick<User, 'id' | 'name' | 'avatar'> | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [isSubmittingRequest, setIsSubmittingRequest] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
   const [dialogOpen, setDialogOpen] = useState(false);
+  const [hasEditAccess, setHasEditAccess] = useState(false);
 
-  const form = useForm<RequestFormValues>({
-    resolver: zodResolver(requestFormSchema),
-    defaultValues: { name: '', email: '' },
+  const form = useForm<PasswordFormValues>({
+    resolver: zodResolver(passwordFormSchema),
+    defaultValues: { password: '' },
   });
 
   const fetchPublicNote = useCallback(async () => {
@@ -67,7 +64,7 @@ export default function PublicNotePage() {
     try {
       const { data, error: fetchError } = await supabase
         .from('notes')
-        .select('id, title, content, admin_id, created_at, category, visibility')
+        .select('id, title, content, admin_id, created_at, category, visibility, security_key')
         .eq('id', noteId)
         .eq('visibility', 'public')
         .single();
@@ -90,8 +87,20 @@ export default function PublicNotePage() {
             updated_at: data.created_at,
             category: data.category as Note['category'],
             visibility: data.visibility as Note['visibility'],
+            security_key: data.security_key,
         };
         setNote(fetchedNote);
+
+        // Check for session storage token
+        const editToken = sessionStorage.getItem(`note-edit-token-${noteId}`);
+        if(editToken) {
+            const { success } = await verifyNotePassword({ noteId, password: editToken, isToken: true });
+            if (success) {
+                setHasEditAccess(true);
+            } else {
+                sessionStorage.removeItem(`note-edit-token-${noteId}`);
+            }
+        }
 
         const { data: profileData, error: profileError } = await supabase
           .from('profiles')
@@ -122,30 +131,31 @@ export default function PublicNotePage() {
     fetchPublicNote();
   }, [fetchPublicNote]);
   
-  async function onSubmit(values: RequestFormValues) {
+  async function onSubmit(values: PasswordFormValues) {
     if (!noteId) return;
-    setIsSubmittingRequest(true);
-    const result = await requestNoteEditAccess({
+    setIsSubmitting(true);
+    const result = await verifyNotePassword({
       noteId,
-      requesterName: values.name,
-      requesterEmail: values.email,
+      password: values.password,
     });
 
-    if (result.success) {
+    if (result.success && result.token) {
       toast({
-        title: 'Request Sent!',
-        description: 'Your request to edit this note has been sent to the administrator for approval.',
+        title: 'Access Granted!',
+        description: 'You can now edit this note.',
       });
+      sessionStorage.setItem(`note-edit-token-${noteId}`, result.token);
       setDialogOpen(false);
       form.reset();
+      router.push(`/notes/${noteId}/edit`);
     } else {
       toast({
-        title: 'Error',
-        description: result.message || 'Could not submit your request.',
+        title: 'Access Denied',
+        description: result.message || 'The password was incorrect.',
         variant: 'destructive',
       });
     }
-    setIsSubmittingRequest(false);
+    setIsSubmitting(false);
   }
 
   if (isLoading) {
@@ -169,6 +179,8 @@ export default function PublicNotePage() {
       </div>
     );
   }
+  
+  const canEdit = hasEditAccess || (note.security_key === null); // Allow edit if no password is set
 
   return (
     <div className="flex justify-center bg-background py-8 sm:py-12 md:py-16">
@@ -186,56 +198,54 @@ export default function PublicNotePage() {
                       <p className="text-xs text-muted-foreground pt-1">
                         Published on {note.created_at ? format(parseISO(note.created_at), 'PPP') : 'N/A'}
                       </p>
-                       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-                        <DialogTrigger asChild>
-                           <Button variant="outline" size="sm">
-                              <Edit className="mr-2 h-4 w-4" />
-                              Request to Edit
-                            </Button>
-                        </DialogTrigger>
-                        <DialogContent>
-                          <DialogHeader>
-                            <DialogTitle>Request Edit Access</DialogTitle>
-                            <DialogDescription>
-                              Enter your name and email. An administrator will review your request. If approved, you will receive an edit link via email.
-                            </DialogDescription>
-                          </DialogHeader>
-                          <Form {...form}>
-                            <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
-                              <FormField
-                                control={form.control}
-                                name="name"
-                                render={({ field }) => (
-                                  <FormItem>
-                                    <FormLabel>Your Name</FormLabel>
-                                    <FormControl>
-                                      <Input placeholder="Jane Doe" {...field} />
-                                    </FormControl>
-                                    <FormMessage />
-                                  </FormItem>
-                                )}
-                              />
-                               <FormField
-                                control={form.control}
-                                name="email"
-                                render={({ field }) => (
-                                  <FormItem>
-                                    <FormLabel>Your Email</FormLabel>
-                                    <FormControl>
-                                      <Input type="email" placeholder="you@example.com" {...field} />
-                                    </FormControl>
-                                    <FormMessage />
-                                  </FormItem>
-                                )}
-                              />
-                              <Button type="submit" className="w-full" disabled={isSubmittingRequest}>
-                                {isSubmittingRequest && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                                Submit Request
+                      
+                       {hasEditAccess ? (
+                          <Button asChild size="sm">
+                              <Link href={`/notes/${noteId}/edit`}><Edit className="mr-2 h-4 w-4" /> Edit Note</Link>
+                          </Button>
+                        ) : note.security_key ? (
+                          <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
+                            <DialogTrigger asChild>
+                              <Button variant="outline" size="sm">
+                                <Edit className="mr-2 h-4 w-4" /> Edit with Password
                               </Button>
-                            </form>
-                          </Form>
-                        </DialogContent>
-                      </Dialog>
+                            </DialogTrigger>
+                            <DialogContent>
+                              <DialogHeader>
+                                <DialogTitle>Enter Password to Edit</DialogTitle>
+                                <DialogDescription>
+                                  This note is password-protected. Please enter the password to gain edit access.
+                                </DialogDescription>
+                              </DialogHeader>
+                              <Form {...form}>
+                                <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
+                                  <FormField
+                                    control={form.control}
+                                    name="password"
+                                    render={({ field }) => (
+                                      <FormItem>
+                                        <FormLabel className='flex items-center'><Lock className="mr-2 h-4 w-4"/> Password</FormLabel>
+                                        <FormControl>
+                                          <Input type="password" placeholder="Enter edit password" {...field} />
+                                        </FormControl>
+                                        <FormMessage />
+                                      </FormItem>
+                                    )}
+                                  />
+                                  <Button type="submit" className="w-full" disabled={isSubmitting}>
+                                    {isSubmitting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                                    Unlock & Edit
+                                  </Button>
+                                </form>
+                              </Form>
+                            </DialogContent>
+                          </Dialog>
+                        ) : (
+                           <Button asChild size="sm">
+                              <Link href={`/notes/${noteId}/edit`}><Edit className="mr-2 h-4 w-4" /> Edit Note</Link>
+                           </Button>
+                        )
+                       }
                     </div>
                 </div>
                 {adminProfile && (

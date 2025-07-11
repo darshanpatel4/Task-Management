@@ -109,6 +109,7 @@ export interface Note {
   updated_at: string; // ISO date string
   category?: NoteCategory | null; // New category field
   visibility?: 'private' | 'public'; // Visibility of the note
+  security_key?: string | null; // Optional password for editing public notes
 }
 
 export interface NoteEditRequest {

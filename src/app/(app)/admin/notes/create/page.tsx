@@ -24,7 +24,7 @@ import { noteCategories } from '@/types';
 import { useToast } from '@/hooks/use-toast';
 import { supabase } from '@/lib/supabaseClient';
 import { useEffect, useState } from 'react';
-import { Loader2, AlertTriangle, Users, ChevronDown, Send, Tag, EyeOff, Globe } from 'lucide-react';
+import { Loader2, AlertTriangle, Users, ChevronDown, Send, Tag, EyeOff, Globe, Lock } from 'lucide-react';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -45,6 +45,7 @@ const noteFormSchema = z.object({
   recipient_user_ids: z.array(z.string()).optional(), // Made optional
   category: z.enum(noteCategories, { required_error: 'Note category is required.' }),
   visibility: z.enum(['private', 'public']).default('private'),
+  security_key: z.string().optional(),
 }).refine(data => {
   // If visibility is 'private', at least one recipient is required.
   if (data.visibility === 'private') {
@@ -78,6 +79,7 @@ export default function CreateNotePage() {
       recipient_user_ids: [],
       category: 'General',
       visibility: 'private',
+      security_key: '',
     },
   });
 
@@ -134,6 +136,7 @@ export default function CreateNotePage() {
         recipient_user_ids: recipients,
         category: values.category,
         visibility: values.visibility,
+        security_key: values.visibility === 'public' && values.security_key ? values.security_key : null,
       };
 
       const { data: createdNote, error: noteInsertError } = await supabase
@@ -347,6 +350,28 @@ export default function CreateNotePage() {
                   </FormItem>
                 )}
               />
+
+              {visibility === 'public' && (
+                <FormField
+                    control={form.control}
+                    name="security_key"
+                    render={({ field }) => (
+                    <FormItem>
+                        <FormLabel className="flex items-center">
+                            <Lock className="mr-2 h-4 w-4 text-muted-foreground" />
+                            Edit Password (Optional)
+                        </FormLabel>
+                        <FormControl>
+                            <Input placeholder="Leave blank for read-only" {...field} />
+                        </FormControl>
+                        <FormDescription>
+                            Set a password to allow public users to edit this note.
+                        </FormDescription>
+                        <FormMessage />
+                    </FormItem>
+                    )}
+                />
+              )}
               
               <FormField
                 control={form.control}
