@@ -41,9 +41,19 @@ import { Switch } from '@/components/ui/switch';
 const noteFormSchema = z.object({
   title: z.string().min(3, { message: 'Title must be at least 3 characters.' }).max(150, { message: 'Title too long.'}),
   content: z.string().min(10, { message: 'Note content must be at least 10 characters.' }),
-  recipient_user_ids: z.array(z.string()).min(1, { message: 'At least one recipient must be selected.' }),
+  recipient_user_ids: z.array(z.string()).optional(), // Made optional
   category: z.enum(noteCategories, { required_error: 'Note category is required.' }),
   visibility: z.enum(['private', 'public']).default('private'),
+}).refine(data => {
+  // If visibility is 'private', at least one recipient is required.
+  if (data.visibility === 'private') {
+    return Array.isArray(data.recipient_user_ids) && data.recipient_user_ids.length > 0;
+  }
+  // If visibility is 'public', recipients are not required.
+  return true;
+}, {
+  message: 'At least one recipient must be selected for private notes.',
+  path: ['recipient_user_ids'], // Apply the error to the recipients field
 });
 
 
@@ -69,6 +79,8 @@ export default function CreateNotePage() {
       visibility: 'private',
     },
   });
+
+  const visibility = form.watch('visibility');
 
   useEffect(() => {
     async function fetchUsers() {
@@ -96,13 +108,14 @@ export default function CreateNotePage() {
     fetchUsers();
   }, [isAdmin, toast]);
 
-  const getRecipientButtonLabel = (selectedIds: string[]) => {
-    if (selectedIds.length === 0) return "Select recipients";
-    if (selectedIds.length === 1) {
-      const user = allUsers.find(u => u.id === selectedIds[0]);
+  const getRecipientButtonLabel = (selectedIds: string[] | undefined) => {
+    const safeSelectedIds = selectedIds || [];
+    if (safeSelectedIds.length === 0) return "Select recipients";
+    if (safeSelectedIds.length === 1) {
+      const user = allUsers.find(u => u.id === safeSelectedIds[0]);
       return user ? user.name : "1 user selected";
     }
-    return `${selectedIds.length} users selected`;
+    return `${safeSelectedIds.length} users selected`;
   };
 
   async function onSubmit(values: NoteFormValues) {
@@ -112,11 +125,12 @@ export default function CreateNotePage() {
     }
     setIsSubmitting(true);
     try {
+      const recipients = values.visibility === 'public' ? [] : (values.recipient_user_ids || []);
       const noteToInsert = {
         title: values.title,
         content: values.content,
         admin_id: currentUser.id,
-        recipient_user_ids: values.recipient_user_ids,
+        recipient_user_ids: recipients,
         category: values.category,
         visibility: values.visibility,
       };
@@ -131,8 +145,8 @@ export default function CreateNotePage() {
 
       let toastDescription = `Note "${values.title}" has been successfully created.`;
       
-      if (createdNote && values.recipient_user_ids && values.recipient_user_ids.length > 0) {
-        const recipientUserDetails = allUsers.filter(u => values.recipient_user_ids!.includes(u.id));
+      if (createdNote && recipients.length > 0) {
+        const recipientUserDetails = allUsers.filter(u => recipients.includes(u.id));
 
         const notificationsToInsert = recipientUserDetails.map(recipient => ({
           user_id: recipient.id,
@@ -298,17 +312,54 @@ export default function CreateNotePage() {
 
               <FormField
                 control={form.control}
+                name="visibility"
+                render={({ field }) => (
+                  <FormItem className="flex flex-row items-center justify-between rounded-lg border p-4">
+                    <div className="space-y-0.5">
+                      <FormLabel className="text-base flex items-center">
+                        {field.value === 'public' ? 
+                          <Globe className="mr-2 h-4 w-4 text-blue-500"/> : 
+                          <EyeOff className="mr-2 h-4 w-4 text-gray-500"/>
+                        }
+                        Note Visibility
+                      </FormLabel>
+                      <FormDescription>
+                        {field.value === 'public' ? 
+                          "Public: Anyone with the link can view this note." :
+                          "Private: Only selected recipients can view this note."
+                        }
+                      </FormDescription>
+                    </div>
+                    <FormControl>
+                      <Switch
+                        checked={field.value === 'public'}
+                        onCheckedChange={(checked) => {
+                          const newVisibility = checked ? 'public' : 'private';
+                          field.onChange(newVisibility);
+                          if (newVisibility === 'public') {
+                            form.setValue('recipient_user_ids', []); // Clear recipients for public notes
+                          }
+                          form.trigger('recipient_user_ids'); // Re-validate recipients
+                        }}
+                      />
+                    </FormControl>
+                  </FormItem>
+                )}
+              />
+              
+              <FormField
+                control={form.control}
                 name="recipient_user_ids"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel className="flex items-center">
+                    <FormLabel className={cn("flex items-center", visibility === 'public' && 'text-muted-foreground/50')}>
                       <Users className="mr-2 h-4 w-4 text-muted-foreground" />
-                      Recipients
+                      Recipients {visibility === 'public' && '(Disabled for public notes)'}
                     </FormLabel>
                     <DropdownMenu>
                       <DropdownMenuTrigger asChild>
-                        <Button variant="outline" className="w-full justify-between">
-                          {getRecipientButtonLabel(field.value || [])}
+                        <Button variant="outline" className="w-full justify-between" disabled={visibility === 'public'}>
+                          {getRecipientButtonLabel(field.value)}
                           <ChevronDown className="ml-2 h-4 w-4" />
                         </Button>
                       </DropdownMenuTrigger>
@@ -335,38 +386,12 @@ export default function CreateNotePage() {
                         </ScrollArea>
                       </DropdownMenuContent>
                     </DropdownMenu>
-                    <FormDescription>Select users who will receive this note.</FormDescription>
+                    <FormDescription>
+                      {visibility === 'private'
+                        ? 'Select users who will receive this private note.'
+                        : 'Recipients are not needed for public notes.'}
+                    </FormDescription>
                     <FormMessage />
-                  </FormItem>
-                )}
-              />
-
-              <FormField
-                control={form.control}
-                name="visibility"
-                render={({ field }) => (
-                  <FormItem className="flex flex-row items-center justify-between rounded-lg border p-4">
-                    <div className="space-y-0.5">
-                      <FormLabel className="text-base flex items-center">
-                        {field.value === 'public' ? 
-                          <Globe className="mr-2 h-4 w-4 text-blue-500"/> : 
-                          <EyeOff className="mr-2 h-4 w-4 text-gray-500"/>
-                        }
-                        Note Visibility
-                      </FormLabel>
-                      <FormDescription>
-                        {field.value === 'public' ? 
-                          "Public: Anyone with the link can view this note." :
-                          "Private: Only selected recipients can view this note."
-                        }
-                      </FormDescription>
-                    </div>
-                    <FormControl>
-                      <Switch
-                        checked={field.value === 'public'}
-                        onCheckedChange={(checked) => field.onChange(checked ? 'public' : 'private')}
-                      />
-                    </FormControl>
                   </FormItem>
                 )}
               />
@@ -385,3 +410,5 @@ export default function CreateNotePage() {
     </Card>
   );
 }
+
+    
