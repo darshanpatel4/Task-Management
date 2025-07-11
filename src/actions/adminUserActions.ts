@@ -1,7 +1,7 @@
 
 'use server';
 
-import { createClient, SupabaseClient } from '@supabase/supabase-js';
+import { supabaseAdmin } from '@/lib/supabaseAdmin';
 import { z } from 'zod';
 import type { UserRole } from '@/types';
 
@@ -18,29 +18,6 @@ interface CreateUserResult {
   message: string;
   userId?: string;
 }
-
-// Ensure these are set in your environment variables (.env.local)
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-const supabaseServiceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-
-let supabaseAdmin: SupabaseClient | null = null;
-
-if (supabaseUrl && supabaseServiceRoleKey) {
-  supabaseAdmin = createClient(supabaseUrl, supabaseServiceRoleKey, {
-    auth: {
-      autoRefreshToken: false,
-      persistSession: false,
-    },
-  });
-} else {
-  console.error(
-    'Supabase URL or Service Role Key is not defined. Admin actions will fail.'
-  );
-}
-
-// Export the centralized admin client for other server actions to use
-export { supabaseAdmin };
-
 
 export async function adminCreateUser(formData: {
   email: string;

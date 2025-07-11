@@ -1,7 +1,7 @@
 
 'use server';
 
-import { supabaseAdmin } from './adminUserActions'; // Import the centralized admin client
+import { supabaseAdmin } from '@/lib/supabaseAdmin';
 import { z } from 'zod';
 
 const requestNoteEditAccessSchema = z.object({
