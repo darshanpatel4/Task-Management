@@ -11,34 +11,41 @@ interface RichTextEditorProps {
   className?: string;
 }
 
-const RichTextEditor = ({ value, onChange, placeholder, className }: RichTextEditorProps) => {
-  // Dynamically import ReactQuill to ensure it's only loaded on the client side
-  const ReactQuill = useMemo(() => dynamic(() => import('react-quill'), { ssr: false }), []);
+// Dynamically import ReactQuill to ensure it's only loaded on the client side
+const ReactQuill = useMemo(() => dynamic(() => import('react-quill'), { ssr: false }), []);
 
-  const modules = {
-    toolbar: [
-      [{ 'header': [1, 2, 3, false] }],
-      [{ 'size': ['small', false, 'large', 'huge'] }], // Font size
-      ['bold', 'italic', 'underline', 'strike'], // Toggled buttons
-      [{ 'color': [] }, { 'background': [] }], // Font and background color
-      [{ 'list': 'ordered'}, { 'list': 'bullet' }],
-      [{ 'indent': '-1'}, { 'indent': '+1' }], // Outdent/indent
-      ['link'],
-      ['clean'] // Remove formatting
-    ],
-  };
+// Use React.forwardRef to pass a ref to the underlying ReactQuill component.
+// This is the recommended fix for the "findDOMNode is not a function" error in React 18+.
+const RichTextEditor = React.forwardRef<any, RichTextEditorProps>(
+  ({ value, onChange, placeholder, className }, ref) => {
+    const modules = {
+      toolbar: [
+        [{ 'header': [1, 2, 3, false] }],
+        [{ 'size': ['small', false, 'large', 'huge'] }], // Font size
+        ['bold', 'italic', 'underline', 'strike'], // Toggled buttons
+        [{ 'color': [] }, { 'background': [] }], // Font and background color
+        [{ 'list': 'ordered'}, { 'list': 'bullet' }],
+        [{ 'indent': '-1'}, { 'indent': '+1' }], // Outdent/indent
+        ['link'],
+        ['clean'] // Remove formatting
+      ],
+    };
 
-  return (
-    <div className={className}>
-      <ReactQuill
-        theme="snow"
-        value={value}
-        onChange={onChange}
-        modules={modules}
-        placeholder={placeholder}
-      />
-    </div>
-  );
-};
+    return (
+      <div className={className}>
+        <ReactQuill
+          ref={ref}
+          theme="snow"
+          value={value}
+          onChange={onChange}
+          modules={modules}
+          placeholder={placeholder}
+        />
+      </div>
+    );
+  }
+);
+
+RichTextEditor.displayName = 'RichTextEditor';
 
 export default RichTextEditor;
