@@ -15,6 +15,7 @@ import { Badge } from '@/components/ui/badge';
 import { supabase } from '@/lib/supabaseClient';
 import { useToast } from '@/hooks/use-toast';
 import { useRouter } from 'next/navigation';
+import { getAllNotesAdmin } from '@/actions/adminNoteActions';
 
 interface ProfileMap {
   [userId: string]: Pick<User, 'id' | 'name' | 'avatar'>;
@@ -31,44 +32,28 @@ export default function ManageNotesPage() {
   const [error, setError] = useState<string | null>(null);
 
   const fetchNotesAndProfiles = useCallback(async () => {
-    if (!isAdmin || !supabase) {
+    if (!isAdmin) {
       setIsLoading(false);
-      setError(isAdmin ? "Supabase client not available." : "Access Denied.");
+      setError("Access Denied.");
       return;
     }
     setIsLoading(true);
     setError(null);
 
     try {
-      const { data: notesData, error: notesError } = await supabase
-        .from('notes')
-        .select('id, title, content, admin_id, recipient_user_ids, created_at, updated_at, category, visibility')
-        .order('created_at', { ascending: false });
+      const result = await getAllNotesAdmin();
 
-      if (notesError) throw notesError;
-
-      const allUserIds = new Set<string>();
-      (notesData || []).forEach(note => {
-        allUserIds.add(note.admin_id);
-        if (note.recipient_user_ids) {
-            note.recipient_user_ids.forEach(id => allUserIds.add(id));
-        }
-      });
+      if (!result.success) {
+        throw new Error(result.message);
+      }
+      
+      const { notesData, profilesData } = result;
 
       let newProfilesMap: ProfileMap = {};
-      if (allUserIds.size > 0) {
-        const { data: profilesData, error: profilesError } = await supabase
-          .from('profiles')
-          .select('id, full_name, avatar_url')
-          .in('id', Array.from(allUserIds));
-
-        if (profilesError) {
-          console.warn('Could not fetch profiles for notes page:', profilesError);
-        } else {
-          (profilesData || []).forEach(profile => {
-            newProfilesMap[profile.id] = { id: profile.id, name: profile.full_name || 'N/A', avatar: profile.avatar_url };
-          });
-        }
+      if (profilesData) {
+        profilesData.forEach(profile => {
+          newProfilesMap[profile.id] = { id: profile.id, name: profile.full_name || 'N/A', avatar: profile.avatar_url };
+        });
       }
       setProfilesMap(newProfilesMap);
 
@@ -88,7 +73,7 @@ export default function ManageNotesPage() {
       setNotes(mappedNotes);
 
     } catch (e: any) {
-      console.error('Error fetching notes:', e);
+      console.error('Error fetching notes via server action:', e);
       setError(e.message || 'Failed to load notes.');
       toast({ title: 'Error', description: e.message || 'Could not load notes.', variant: 'destructive' });
     } finally {
@@ -217,7 +202,7 @@ export default function ManageNotesPage() {
               <AlertTriangle className="h-8 w-8 mb-2" />
               <p className="font-semibold">Error Loading Notes</p>
               <p className="text-sm">{error}</p>
-              <Button variant="outline" size="sm" className="mt-4" onClick={fetchNotesAndProfiles} disabled={!supabase}>Try Again</Button>
+              <Button variant="outline" size="sm" className="mt-4" onClick={fetchNotesAndProfiles}>Try Again</Button>
             </div>
           )}
           {!isLoading && !error && notes.length === 0 && (
