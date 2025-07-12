@@ -1,17 +1,76 @@
 
 'use server';
 
+import { supabase } from '@/lib/supabaseClient';
 import { createClient } from '@supabase/supabase-js';
+import type { NoteCategory } from '@/types';
 import { z } from 'zod';
 
+// This is a new, simplified server action for updating note content.
+// It will be called from the admin edit page.
+
+interface UpdateNoteResult {
+    success: boolean;
+    message: string;
+}
+
+const updateNoteSchema = z.object({
+    noteId: z.string().uuid(),
+    title: z.string().min(3, 'Title is required.'),
+    content: z.string().min(10, 'Content is required.'),
+    category: z.string(),
+});
+
+export async function updateNoteContent(formData: {
+    noteId: string;
+    title: string;
+    content: string;
+    category: NoteCategory;
+}): Promise<UpdateNoteResult> {
+    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+    const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+    if (!supabaseUrl || !serviceRoleKey) {
+        return { success: false, message: 'Server environment not configured for admin actions.' };
+    }
+
+    const validation = updateNoteSchema.safeParse(formData);
+    if (!validation.success) {
+        return { success: false, message: validation.error.errors.map(e => e.message).join(', ') };
+    }
+
+    const { noteId, title, content, category } = validation.data;
+
+    try {
+        const supabaseAdmin = createClient(supabaseUrl, serviceRoleKey, {
+            auth: { autoRefreshToken: false, persistSession: false },
+        });
+
+        const { error } = await supabaseAdmin
+            .from('notes')
+            .update({
+                title,
+                content,
+                category,
+                updated_at: new Date().toISOString(),
+            })
+            .eq('id', noteId);
+
+        if (error) throw error;
+
+        return { success: true, message: 'Note updated successfully.' };
+    } catch (e: any) {
+        console.error('Error in updateNoteContent server action:', e);
+        return { success: false, message: e.message || 'An unexpected error occurred.' };
+    }
+}
+
+// Keep the public-facing actions in this file as well for organization.
 const verifyNotePassword = async (formData: {
   noteId: string;
   password?: string;
   isToken?: boolean;
 }) => {
-  // This server action is now deprecated in favor of the /api/verify-note-password route.
-  // The API route pattern is more stable for handling environment variables.
-  // This function is kept to prevent breaking imports but should not be used.
   return {
     success: false,
     message: 'This action is deprecated. Please use the API route.',
@@ -41,7 +100,7 @@ export async function requestNoteEditAccess(formData: {
         return { success: false, message: 'Client environment for database access is not configured.' };
     }
 
-    const supabase = createClient(supabaseUrl, supabaseAnonKey);
+    const supabaseClient = createClient(supabaseUrl, supabaseAnonKey);
 
     const validation = requestNoteEditAccessSchema.safeParse(formData);
     if (!validation.success) {
@@ -51,8 +110,7 @@ export async function requestNoteEditAccess(formData: {
     const { noteId, name, email } = validation.data;
     
     try {
-        // Check for existing pending or approved requests for this note from this email
-        const { data: existingRequest, error: checkError } = await supabase
+        const { data: existingRequest, error: checkError } = await supabaseClient
             .from('note_edit_requests')
             .select('status')
             .eq('note_id', noteId)
@@ -62,7 +120,6 @@ export async function requestNoteEditAccess(formData: {
 
         if (checkError) {
             console.error('Error checking for existing requests:', checkError);
-            // Decide to proceed or not. For now, we'll let it proceed but log the error.
         }
 
         if (existingRequest) {
@@ -74,7 +131,7 @@ export async function requestNoteEditAccess(formData: {
             }
         }
 
-        const { error } = await supabase
+        const { error } = await supabaseClient
             .from('note_edit_requests')
             .insert({
                 note_id: noteId,
@@ -85,7 +142,7 @@ export async function requestNoteEditAccess(formData: {
 
         if (error) {
             console.error('Error creating note edit request:', error);
-            if (error.code === '23503') { // Foreign key violation
+            if (error.code === '23503') {
                 return { success: false, message: 'Could not create request: The specified note does not exist.' };
             }
              if (error.message.includes('permission denied')) {

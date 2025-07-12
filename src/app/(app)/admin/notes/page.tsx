@@ -101,7 +101,6 @@ export default function ManageNotesPage() {
     if (confirm(`Are you sure you want to delete the note "${noteTitle}"? This action cannot be undone.`)) {
       setIsLoading(true);
       try {
-        // Also delete related notifications for this note_id
         const { error: notificationsDeleteError } = await supabase
           .from('notifications')
           .delete()
@@ -125,7 +124,7 @@ export default function ManageNotesPage() {
         if (deleteError) throw deleteError;
 
         toast({ title: "Note Deleted", description: `Note "${noteTitle}" has been deleted.` });
-        fetchNotesAndProfiles(); // Refresh list
+        fetchNotesAndProfiles(); 
       } catch (e: any) {
         toast({ title: "Error Deleting Note", description: e.message || "Could not delete note.", variant: "destructive" });
       } finally {

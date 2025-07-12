@@ -3,7 +3,10 @@
 
 import { createClient } from '@supabase/supabase-js';
 
-// This function is guaranteed to run only on the server.
+// This is the new, correct server action for fetching all notes.
+// It creates the admin client INSIDE the function to ensure it has
+// access to the server environment variables.
+
 export async function getAllNotesAdmin() {
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -18,9 +21,7 @@ export async function getAllNotesAdmin() {
       profilesData: [] 
     };
   }
-
-  // Initialize the admin client INSIDE the function.
-  // This is the key change to ensure it runs in the correct server context.
+  
   const supabaseAdmin = createClient(supabaseUrl, serviceRoleKey, {
     auth: {
       autoRefreshToken: false,
@@ -52,7 +53,6 @@ export async function getAllNotesAdmin() {
         .in('id', Array.from(allUserIds));
 
       if (profilesError) {
-        // Log a warning but don't fail the entire request if profiles can't be fetched
         console.warn('Warning: Could not fetch some profiles for notes admin page:', profilesError.message);
       } else {
         profilesData = profiles || [];
@@ -67,7 +67,6 @@ export async function getAllNotesAdmin() {
     };
 
   } catch (error: any) {
-    // This will catch errors from the database query itself
     console.error('Error in getAllNotesAdmin server action:', { message: error.message, details: error.details, code: error.code });
     return { 
         success: false, 
