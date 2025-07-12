@@ -1,9 +1,7 @@
 
 'use server';
 
-// Force load environment variables at the start of the action's execution.
-import 'dotenv/config';
-import { createClient } from '@supabase/supabase-js';
+import { supabaseAdmin } from '@/lib/supabaseAdmin'; // Import the robust admin client
 import { z } from 'zod';
 
 const verifyPasswordSchema = z.object({
@@ -31,25 +29,8 @@ export async function verifyNotePassword(formData: {
 
   const { noteId, password, isToken } = validation.data;
 
-  // Create a new Supabase admin client on-the-fly for this action.
-  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-
-  if (!supabaseUrl || !serviceRoleKey) {
-    const errorMessage = 'Server environment for database access is not configured correctly.';
-    console.error(`verifyNotePassword Error: ${errorMessage}`);
-    return { success: false, message: errorMessage };
-  }
-
-  const supabaseAdmin = createClient(supabaseUrl, serviceRoleKey, {
-    auth: {
-      autoRefreshToken: false,
-      persistSession: false,
-    },
-  });
-
   try {
-    const { data: note, error } = await supabaseAdmin
+    const { data: note, error } = await supabaseAdmin // Use the imported admin client
       .from('notes')
       .select('security_key')
       .eq('id', noteId)
@@ -75,6 +56,10 @@ export async function verifyNotePassword(formData: {
 
   } catch (e: any) {
     console.error('Unexpected error verifying password:', e);
+    // Check if the error is from our explicit throw in supabaseAdmin.ts
+    if (e.message?.startsWith('SUPABASE_ADMIN_ERROR')) {
+        return { success: false, message: 'Server environment for database access is not configured correctly.' };
+    }
     return { success: false, message: `An unexpected server error occurred: ${e.message || 'Unknown error'}` };
   }
 }
@@ -103,17 +88,6 @@ export async function updateNoteContent(formData: {
     }
     const { noteId, content, editToken } = validation.data;
     
-    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-    const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-
-    if (!supabaseUrl || !serviceRoleKey) {
-        const errorMessage = 'Server environment for database access is not configured correctly.';
-        console.error(`updateNoteContent Error: ${errorMessage}`);
-        return { success: false, message: errorMessage };
-    }
-
-    const supabaseAdmin = createClient(supabaseUrl, serviceRoleKey);
-
     // First, verify the edit token is valid for this note
     const { data: note, error: fetchError } = await supabaseAdmin
         .from('notes')
@@ -171,16 +145,6 @@ export async function requestNoteEditAccess(formData: {
     }
     const { noteId, name, email } = validation.data;
     
-    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-    const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-
-    if (!supabaseUrl || !serviceRoleKey) {
-        const errorMessage = 'Server environment for database access is not configured correctly.';
-        console.error(`requestNoteEditAccess Error: ${errorMessage}`);
-        return { success: false, message: errorMessage };
-    }
-    const supabaseAdmin = createClient(supabaseUrl, serviceRoleKey);
-    
     try {
         const { error } = await supabaseAdmin
             .from('note_edit_requests')
@@ -206,6 +170,9 @@ export async function requestNoteEditAccess(formData: {
 
     } catch (e: any) {
         console.error('Unexpected error creating edit request:', e);
+        if (e.message?.startsWith('SUPABASE_ADMIN_ERROR')) {
+            return { success: false, message: 'Server environment for database access is not configured correctly.' };
+        }
         return { success: false, message: `An unexpected error occurred: ${e.message || 'Unknown error'}` };
     }
 }
