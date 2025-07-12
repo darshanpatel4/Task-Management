@@ -14,6 +14,7 @@ interface AuthContextType {
   loading: boolean;
   isInitialized: boolean;
   session: Session | null;
+  mockLogin: (email: string, name?: string) => User | null;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -236,6 +237,20 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     }
   };
   
+  const mockLogin = (email: string, name?: string): User | null => {
+    if (email === 'admin@taskflow.ai') {
+      const adminUser: User = { id: 'mock-admin-id', name: name || 'Mock Admin', email, role: 'Admin', avatar: `https://placehold.co/100x100.png?text=A` };
+      setCurrentUser(adminUser);
+      return adminUser;
+    }
+    if (email.endsWith('@taskflow.ai')) {
+      const user: User = { id: 'mock-user-id', name: name || 'Mock User', email, role: 'User', avatar: `https://placehold.co/100x100.png?text=U` };
+      setCurrentUser(user);
+      return user;
+    }
+    return null;
+  };
+
   const isAdmin = currentUserState?.role === 'Admin';
 
   return (
@@ -246,7 +261,8 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       isAdmin, 
       loading: loadingState, 
       isInitialized: isInitializedState, 
-      session: sessionState 
+      session: sessionState,
+      mockLogin
     }}>
       {children}
     </AuthContext.Provider>
@@ -260,5 +276,3 @@ export const useAuth = () => {
   }
   return context;
 };
-
-    
