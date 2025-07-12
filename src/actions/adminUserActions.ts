@@ -31,7 +31,7 @@ export async function adminCreateUser(formData: {
     return {
       success: false,
       message:
-        'Supabase admin client is not initialized. Check server logs for missing environment variables.',
+        'Server environment for database access is not configured correctly.',
     };
   }
 
