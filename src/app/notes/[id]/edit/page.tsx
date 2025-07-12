@@ -95,28 +95,36 @@ export default function PublicNoteEditPage() {
   }, [verifyAccessAndFetchNote]);
 
   async function onSubmit(values: EditFormValues) {
-    if (!noteId || !editToken) {
-        toast({ title: 'Error', description: 'Cannot save, missing note ID or edit token.', variant: 'destructive' });
+    if (!noteId || !editToken || !supabase) {
+        toast({ title: 'Error', description: 'Cannot save, missing note ID, token, or database connection.', variant: 'destructive' });
         return;
     }
     setIsSubmitting(true);
     try {
-        const response = await fetch('/api/update-note-public', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                noteId,
-                content: values.content,
-                editToken,
-            }),
-        });
+        // We removed RLS, so we can now update directly using the public client,
+        // but we still check the token on the client-side as a basic guard.
+        const { data: requestData, error: requestError } = await supabase
+            .from('note_edit_requests')
+            .select('id')
+            .eq('note_id', noteId)
+            .eq('edit_token', editToken)
+            .eq('status', 'approved')
+            .single();
 
-        const result = await response.json();
-
-        if (!response.ok) {
-            throw new Error(result.message || 'An unknown error occurred.');
+        if (requestError || !requestData) {
+            throw new Error("Edit token is invalid or has expired. Cannot save changes.");
         }
+        
+        const { error: updateError } = await supabase
+            .from('notes')
+            .update({
+                content: values.content,
+                updated_at: new Date().toISOString(),
+            })
+            .eq('id', noteId);
 
+        if (updateError) throw updateError;
+        
         toast({ title: 'Note Saved!', description: 'Your changes have been saved successfully.' });
         router.push(`/notes/${noteId}`);
     } catch (e: any) {
