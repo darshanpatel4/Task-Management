@@ -1,6 +1,8 @@
 
 'use server';
 
+// Force load environment variables at the start of the action's execution.
+import 'dotenv/config';
 import { supabaseAdmin } from '@/lib/supabaseAdmin';
 import { z } from 'zod';
 
@@ -21,12 +23,9 @@ export async function verifyNotePassword(formData: {
   password?: string;
   isToken?: boolean;
 }): Promise<VerifyPasswordResult> {
-  if (!supabaseAdmin) {
-    const errorMsg = 'Server environment for database access is not configured.';
-    console.error(errorMsg);
-    return { success: false, message: errorMsg };
-  }
-
+  // The check for supabaseAdmin is now implicitly handled by the robust initialization in supabaseAdmin.ts
+  // If it fails, it will throw an error before this code even runs.
+  
   const validation = verifyPasswordSchema.safeParse(formData);
   if (!validation.success) {
     const errorMessages = validation.error.errors.map((e) => e.message).join(', ');
@@ -64,7 +63,8 @@ export async function verifyNotePassword(formData: {
 
   } catch (e: any) {
     console.error('Unexpected error verifying password:', e);
-    return { success: false, message: `An unexpected error occurred: ${e.message || 'Unknown error'}` };
+    // Return the caught error message for better debugging
+    return { success: false, message: `An unexpected server error occurred: ${e.message || 'Unknown error'}` };
   }
 }
 
@@ -85,10 +85,6 @@ export async function updateNoteContent(formData: {
     content: string,
     editToken: string
 }): Promise<UpdateNoteResult> {
-    if (!supabaseAdmin) {
-        return { success: false, message: 'Server environment not configured.' };
-    }
-
     const validation = updateNoteContentSchema.safeParse(formData);
     if (!validation.success) {
         const errorMessages = validation.error.errors.map((e) => e.message).join(', ');
@@ -146,10 +142,6 @@ export async function requestNoteEditAccess(formData: {
     name: string,
     email: string
 }): Promise<RequestAccessResult> {
-    if (!supabaseAdmin) {
-        return { success: false, message: 'Server environment for database access is not configured.' };
-    }
-
     const validation = requestNoteEditAccessSchema.safeParse(formData);
     if (!validation.success) {
         const errorMessages = validation.error.errors.map((e) => e.message).join(', ');
