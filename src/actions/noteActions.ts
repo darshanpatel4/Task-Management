@@ -14,17 +14,6 @@ import 'dotenv/config'
 
 
 // Keep the public-facing actions in this file as well for organization.
-const verifyNotePassword = async (formData: {
-  noteId: string;
-  password?: string;
-  isToken?: boolean;
-}) => {
-  return {
-    success: false,
-    message: 'This action is deprecated. Please use the API route.',
-  };
-};
-
 const requestNoteEditAccessSchema = z.object({
   noteId: z.string().uuid(),
   name: z.string().min(2, 'Name is required.'),
