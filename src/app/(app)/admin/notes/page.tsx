@@ -4,7 +4,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import Link from 'next/link';
 import { useAuth } from '@/context/AuthContext';
-import type { Note, User, NoteCategory } from '@/types';
+import type { Note, NoteCategory } from '@/types';
 import { Button } from '@/components/ui/button';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { PlusCircle, Eye, Trash2, Loader2, AlertTriangle, Share2, Globe, EyeOff, Edit3, Tag } from 'lucide-react';
@@ -14,6 +14,7 @@ import { Badge } from '@/components/ui/badge';
 import { supabase } from '@/lib/supabaseClient';
 import { useToast } from '@/hooks/use-toast';
 import { useRouter } from 'next/navigation';
+import { getAllNotesAdmin } from '@/actions/noteActions';
 
 export default function ManageNotesPage() {
   const { currentUser, isAdmin } = useAuth();
@@ -25,24 +26,20 @@ export default function ManageNotesPage() {
   const [error, setError] = useState<string | null>(null);
 
   const fetchNotes = useCallback(async () => {
-    if (!isAdmin || !supabase) {
+    if (!isAdmin) {
       setIsLoading(false);
-      setError(isAdmin ? "Supabase client not available." : "Access Denied.");
+      setError("Access Denied.");
       return;
     }
     setIsLoading(true);
     setError(null);
 
     try {
-      const { data, error: fetchError } = await supabase
-        .from('notes')
-        .select('id, title, content, admin_id, recipient_user_ids, created_at, updated_at, category, visibility')
-        .order('created_at', { ascending: false });
-
-      if (fetchError) {
-        throw fetchError;
+      const result = await getAllNotesAdmin();
+      if (!result.success) {
+        throw new Error(result.message);
       }
-      setNotes(data || []);
+      setNotes(result.data || []);
     } catch (e: any) {
       console.error('Error fetching notes:', e);
       setError(e.message || 'Failed to load notes.');
