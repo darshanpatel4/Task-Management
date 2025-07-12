@@ -1,6 +1,6 @@
 
 'use server';
-import { supabaseAdmin } from '@/lib/supabaseAdmin';
+import { createClient } from '@supabase/supabase-js';
 import { z } from 'zod';
 import type { UserRole } from '@/types';
 
@@ -24,13 +24,23 @@ export async function adminCreateUser(formData: {
   fullName: string;
   role: UserRole;
 }): Promise<CreateUserResult> {
-  if (!supabaseAdmin) {
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+  if (!supabaseUrl || !serviceRoleKey) {
     return {
       success: false,
       message:
         'Supabase admin client is not initialized. Check server logs for missing environment variables.',
     };
   }
+
+  const supabaseAdmin = createClient(supabaseUrl, serviceRoleKey, {
+      auth: {
+        autoRefreshToken: false,
+        persistSession: false,
+      },
+    });
 
   const validation = CreateUserSchema.safeParse(formData);
   if (!validation.success) {
