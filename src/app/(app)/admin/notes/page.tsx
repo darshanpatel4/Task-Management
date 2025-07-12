@@ -7,14 +7,14 @@ import { useAuth } from '@/context/AuthContext';
 import type { Note, User, NoteCategory } from '@/types';
 import { Button } from '@/components/ui/button';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { PlusCircle, Eye, Trash2, Loader2, AlertTriangle, StickyNote, Tag, Share2, Globe, EyeOff, Edit3 } from 'lucide-react';
+import { PlusCircle, Eye, Trash2, Loader2, AlertTriangle, Share2, Globe, EyeOff, Edit3 } from 'lucide-react';
 import { format, parseISO } from 'date-fns';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
 import { supabase } from '@/lib/supabaseClient';
 import { useToast } from '@/hooks/use-toast';
 import { useRouter } from 'next/navigation';
+import { getAllNotesAdmin } from '@/actions/adminNoteActions';
 
 interface ProfileMap {
   [userId: string]: Pick<User, 'id' | 'name' | 'avatar'>;
@@ -40,11 +40,10 @@ export default function ManageNotesPage() {
     setError(null);
 
     try {
-      const response = await fetch('/api/get-all-notes');
-      const result = await response.json();
+      const result = await getAllNotesAdmin();
 
-      if (!response.ok || !result.success) {
-        throw new Error(result.message || 'Failed to fetch notes from API.');
+      if (!result.success) {
+        throw new Error(result.message || 'Failed to fetch notes.');
       }
       
       const { notesData, profilesData } = result;
@@ -73,7 +72,7 @@ export default function ManageNotesPage() {
       setNotes(mappedNotes);
 
     } catch (e: any) {
-      console.error('Error fetching notes via API route:', e);
+      console.error('Error fetching notes via server action:', e);
       setError(e.message || 'Failed to load notes.');
       toast({ title: 'Error', description: e.message || 'Could not load notes.', variant: 'destructive' });
     } finally {
