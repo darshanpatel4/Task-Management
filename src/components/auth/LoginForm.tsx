@@ -14,13 +14,13 @@ import {
   FormMessage,
 } from '@/components/ui/form';
 import { Input } from '@/components/ui/input';
-import { useAuth } from '@/context/AuthContext';
 import { useRouter } from 'next/navigation';
 // import Link from 'next/link'; // Removed Link import
 import { useToast } from '@/hooks/use-toast';
 import { Mail, Lock, Loader2 } from 'lucide-react';
 import { supabase } from '@/lib/supabaseClient';
 import { useState } from 'react';
+import { useAuth } from '@/context/AuthContext';
 
 const formSchema = z.object({
   email: z.string().email({ message: 'Invalid email address.' }),
@@ -28,7 +28,6 @@ const formSchema = z.object({
 });
 
 export function LoginForm() {
-  const { mockLogin } = useAuth(); // Get mockLogin from context for fallback
   const router = useRouter();
   const { toast } = useToast();
   const [isLoading, setIsLoading] = useState(false);
@@ -43,50 +42,38 @@ export function LoginForm() {
 
   async function onSubmit(values: z.infer<typeof formSchema>) {
     setIsLoading(true);
-    if (supabase) {
-      // Attempt Supabase login
-      const { data, error } = await supabase.auth.signInWithPassword({
-        email: values.email,
-        password: values.password,
-      });
 
-      if (error) {
+    if (!supabase) {
         toast({
-          title: 'Login Failed',
-          description: error.message || 'Invalid Supabase credentials. Please try again.',
-          variant: 'destructive',
+          title: "Supabase Not Configured",
+          description: "The Supabase client is not available. Please check your environment variables and restart the server.",
+          variant: "destructive",
         });
-      } else if (data.user) {
-        // AuthContext's onAuthStateChange will handle profile fetching and setting currentUser
-        toast({
-          title: 'Login Successful',
-          description: `Welcome back!`, // Name will be updated by AuthContext
-        });
-        router.push('/dashboard'); // onAuthStateChange in AuthContext will also manage redirection if needed
-      }
-    } else {
-      // Fallback to mock login if Supabase client is not initialized
-      toast({
-        title: "Supabase Not Configured",
-        description: "Using mock login. Please configure Supabase environment variables for full functionality.",
-        variant: "default",
-        duration: 5000,
-      });
-      const user = mockLogin(values.email, undefined); // Use mockLogin from context
-      if (user) {
-        toast({
-          title: 'Mock Login Successful',
-          description: `Welcome back, ${user.name}!`,
-        });
-        router.push('/dashboard');
-      } else {
-        toast({
-          title: 'Mock Login Failed',
-          description: 'Invalid mock credentials. Please try again.',
-          variant: 'destructive',
-        });
-      }
+        setIsLoading(false);
+        return;
     }
+
+    // Attempt Supabase login
+    const { data, error } = await supabase.auth.signInWithPassword({
+      email: values.email,
+      password: values.password,
+    });
+
+    if (error) {
+      toast({
+        title: 'Login Failed',
+        description: error.message || 'Invalid credentials. Please try again.',
+        variant: 'destructive',
+      });
+    } else if (data.user) {
+      // AuthContext's onAuthStateChange will handle profile fetching and setting currentUser
+      toast({
+        title: 'Login Successful',
+        description: `Welcome back!`, // Name will be updated by AuthContext
+      });
+      router.push('/dashboard');
+    }
+    
     setIsLoading(false);
   }
 
@@ -129,15 +116,6 @@ export function LoginForm() {
           {isLoading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
           Sign In
         </Button>
-        {/* Removed the link to signup page */}
-        {/* 
-        <p className="text-center text-sm text-muted-foreground">
-          Don&apos;t have an account?{' '}
-          <Link href="/auth/signup" className="font-medium text-primary hover:underline">
-            Sign up
-          </Link>
-        </p> 
-        */}
       </form>
     </Form>
   );
