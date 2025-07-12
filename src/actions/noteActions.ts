@@ -170,4 +170,65 @@ export async function requestNoteEditAccess(formData: {
     }
 }
 
+
+interface AdminUpdateNoteResult {
+  success: boolean;
+  message: string;
+}
+
+const adminUpdateNoteSchema = z.object({
+  noteId: z.string().uuid(),
+  title: z.string().min(3, { message: 'Title must be at least 3 characters.' }),
+  content: z.string().min(10, { message: 'Note content is required.' }),
+  category: z.string(),
+});
+
+export async function adminUpdateNote(formData: {
+  noteId: string;
+  title: string;
+  content: string;
+  category: string;
+}): Promise<AdminUpdateNoteResult> {
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+  if (!supabaseUrl || !serviceRoleKey) {
+    return {
+      success: false,
+      message: 'Server environment for database access is not configured correctly.',
+    };
+  }
+  const supabaseAdmin = createClient(supabaseUrl, serviceRoleKey, {
+    auth: {
+      autoRefreshToken: false,
+      persistSession: false,
+    },
+  });
+
+  const validation = adminUpdateNoteSchema.safeParse(formData);
+  if (!validation.success) {
+    const errorMessages = validation.error.errors.map((e) => e.message).join(', ');
+    return { success: false, message: `Invalid input: ${errorMessages}` };
+  }
+  const { noteId, title, content, category } = validation.data;
+
+  const { error } = await supabaseAdmin
+    .from('notes')
+    .update({
+      title,
+      content,
+      category,
+      updated_at: new Date().toISOString(),
+    })
+    .eq('id', noteId);
+
+  if (error) {
+    console.error('Error updating note as admin:', error);
+    return { success: false, message: `Database error: ${error.message}` };
+  }
+
+  return { success: true, message: 'Note updated successfully.' };
+}
+
+
 export { verifyNotePassword };

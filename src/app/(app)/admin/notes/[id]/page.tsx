@@ -11,7 +11,7 @@ import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
 import { format, parseISO } from 'date-fns';
-import { StickyNote, CalendarDays, Users, UserCircle, Loader2, AlertTriangle, ArrowLeft, Tag } from 'lucide-react';
+import { StickyNote, CalendarDays, Users, UserCircle, Loader2, AlertTriangle, ArrowLeft, Tag, Edit3 } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { supabase } from '@/lib/supabaseClient';
 
@@ -164,9 +164,15 @@ export default function AdminNoteDetailPage() {
                     <Tag className="mr-1.5 h-3 w-3" /> {note.category || 'General'}
                 </Badge>
             </div>
-            <Badge variant="outline" className="mt-2 sm:mt-1 text-xs self-start sm:self-auto">
-                Last updated: {note.updated_at ? format(parseISO(note.updated_at), 'MMM d, yyyy HH:mm') : 'N/A'}
-            </Badge>
+            <div className="flex flex-col sm:flex-row items-end sm:items-center gap-2 mt-2 sm:mt-0">
+                <Badge variant="outline" className="text-xs self-start sm:self-auto">
+                    Last updated: {note.updated_at ? format(parseISO(note.updated_at), 'MMM d, yyyy HH:mm') : 'N/A'}
+                </Badge>
+                <Button variant="outline" size="sm" onClick={() => router.push(`/admin/notes/edit/${note.id}`)}>
+                    <Edit3 className="mr-2 h-4 w-4" />
+                    Edit
+                </Button>
+            </div>
           </div>
           <CardDescription className="pt-2">
             <div className="flex flex-col space-y-1 sm:flex-row sm:space-y-0 sm:space-x-2 sm:items-center text-sm text-muted-foreground">
@@ -217,10 +223,6 @@ export default function AdminNoteDetailPage() {
                  dangerouslySetInnerHTML={{ __html: note.content || 'No content provided.' }} />
           </div>
         </CardContent>
-        <CardFooter className="border-t pt-4">
-            {/* Future actions like Edit button for Admins can go here */}
-            {/* <Button variant="outline" disabled>Edit Note (Not Implemented)</Button> */}
-        </CardFooter>
       </Card>
     </div>
   );

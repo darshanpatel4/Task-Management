@@ -7,7 +7,7 @@ import { useAuth } from '@/context/AuthContext';
 import type { Note, User, NoteCategory } from '@/types';
 import { Button } from '@/components/ui/button';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { PlusCircle, Eye, Trash2, Loader2, AlertTriangle, StickyNote, Tag, Share2, Globe, EyeOff } from 'lucide-react';
+import { PlusCircle, Eye, Trash2, Loader2, AlertTriangle, StickyNote, Tag, Share2, Globe, EyeOff, Edit3 } from 'lucide-react';
 import { format, parseISO } from 'date-fns';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
@@ -268,6 +268,11 @@ export default function ManageNotesPage() {
                             <Share2 className="h-4 w-4" />
                           </Button>
                         )}
+                        <Link href={`/admin/notes/edit/${note.id}`}>
+                          <Button variant="ghost" size="icon" aria-label="Edit note" disabled={!supabase || isLoading}>
+                            <Edit3 className="h-4 w-4" />
+                          </Button>
+                        </Link>
                         <Link href={`/admin/notes/${note.id}`}>
                           <Button variant="ghost" size="icon" aria-label="View note" disabled={!supabase}>
                             <Eye className="h-4 w-4" />
