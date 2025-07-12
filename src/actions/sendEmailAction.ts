@@ -1,9 +1,9 @@
 
 'use server';
-import 'dotenv/config'; // Make sure environment variables are loaded
-import { supabase } from '@/lib/supabaseClient';
 import type { User } from '@/types';
 import sgMail from '@sendgrid/mail';
+import { supabase } from '@/lib/supabaseClient';
+
 
 // Configure SendGrid API Key
 if (process.env.SENDGRID_API_KEY) {

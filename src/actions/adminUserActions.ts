@@ -1,6 +1,5 @@
 
 'use server';
-import 'dotenv/config';
 import { supabaseAdmin } from '@/lib/supabaseAdmin';
 import { z } from 'zod';
 import type { UserRole } from '@/types';

@@ -1,6 +1,5 @@
 // src/lib/supabaseAdmin.ts
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
-import 'dotenv/config'; // Force load environment variables
 
 // Note: this is NOT a 'use server' file. It is a shared utility for server-side code.
 
