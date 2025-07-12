@@ -7,7 +7,7 @@ import { useAuth } from '@/context/AuthContext';
 import type { Note, NoteCategory } from '@/types';
 import { Button } from '@/components/ui/button';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { PlusCircle, Eye, Trash2, Loader2, AlertTriangle, Share2, Globe, EyeOff, Edit3, Tag } from 'lucide-react';
+import { PlusCircle, Eye, Trash2, Loader2, AlertTriangle, Share2, Globe, EyeOff, Edit3, Tag, ShieldQuestion } from 'lucide-react';
 import { format, parseISO } from 'date-fns';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -129,11 +129,18 @@ export default function ManageNotesPage() {
           <h1 className="text-3xl font-bold tracking-tight">Manage Notes</h1>
           <p className="text-muted-foreground">Oversee all notes sent to users.</p>
         </div>
-        <Link href="/admin/notes/create">
-          <Button disabled={isLoading || !supabase}>
-            <PlusCircle className="mr-2 h-4 w-4" /> Create New Note
-          </Button>
-        </Link>
+        <div className="flex flex-col sm:flex-row gap-2 w-full sm:w-auto">
+          <Link href="/admin/edit-requests">
+            <Button variant="outline" disabled={isLoading || !supabase}>
+              <ShieldQuestion className="mr-2 h-4 w-4" /> View Edit Requests
+            </Button>
+          </Link>
+          <Link href="/admin/notes/create">
+            <Button disabled={isLoading || !supabase}>
+              <PlusCircle className="mr-2 h-4 w-4" /> Create New Note
+            </Button>
+          </Link>
+        </div>
       </div>
 
       <Card>
