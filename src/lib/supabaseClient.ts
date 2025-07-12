@@ -15,20 +15,22 @@ if (supabaseUrl && supabaseAnonKey) {
         detectSessionInUrl: true,
       }, 
     });
-    console.log("Supabase client initialized successfully.");
+    // This console log helps confirm client-side initialization
+    if (typeof window !== 'undefined') {
+        console.log("Supabase client initialized successfully on the client.");
+    }
   } catch (error) {
     console.error("Error initializing Supabase client:", error);
     // supabaseInstance remains null
   }
 } else {
-  const message = "Supabase environment variables (NEXT_PUBLIC_SUPABASE_URL, NEXT_PUBLIC_SUPABASE_ANON_KEY) " +
-                  "are not set. Supabase features will be disabled, and the app will use mock data.";
+  // This warning helps diagnose if the variables are missing
+  const message = "Supabase environment variables (NEXT_PUBLIC_SUPABASE_URL, NEXT_PUBLIC_SUPABASE_ANON_KEY) are not set. Supabase features will be disabled.";
   if (typeof window !== 'undefined') {
-    console.warn(message + " (Client-side)");
-  } else {
-    console.warn(message + " (Server-side)");
+    // Only show this detailed warning on the client where it's most relevant for login issues
+    console.warn(message);
+    console.warn("Please ensure your .env.local file is in the root directory and the Next.js development server has been restarted.");
   }
-  console.log("Supabase client is NOT initialized. Falling back to mock data if applicable.");
 }
 
 export const supabase = supabaseInstance;

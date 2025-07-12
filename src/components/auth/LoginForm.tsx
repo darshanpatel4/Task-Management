@@ -15,12 +15,10 @@ import {
 } from '@/components/ui/form';
 import { Input } from '@/components/ui/input';
 import { useRouter } from 'next/navigation';
-// import Link from 'next/link'; // Removed Link import
 import { useToast } from '@/hooks/use-toast';
 import { Mail, Lock, Loader2 } from 'lucide-react';
 import { supabase } from '@/lib/supabaseClient';
 import { useState } from 'react';
-import { useAuth } from '@/context/AuthContext';
 
 const formSchema = z.object({
   email: z.string().email({ message: 'Invalid email address.' }),
