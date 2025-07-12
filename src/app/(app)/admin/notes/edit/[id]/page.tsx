@@ -19,6 +19,7 @@ import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Loader2, AlertTriangle, Save, Ban, Tag, Edit3 } from 'lucide-react';
 import Link from 'next/link';
+import { updateNoteContent } from '@/actions/noteActions';
 
 const editFormSchema = z.object({
   title: z.string().min(3, { message: 'Title must be at least 3 characters.' }),
@@ -94,32 +95,21 @@ export default function AdminNoteEditPage() {
     }
     setIsSubmitting(true);
     
-    try {
-        const response = await fetch('/api/update-note-admin', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                noteId,
-                title: values.title,
-                content: values.content,
-                category: values.category,
-            }),
-        });
-
-        const result = await response.json();
-        
-        if (!response.ok) {
-            throw new Error(result.message || 'An unknown server error occurred');
-        }
-
+    const result = await updateNoteContent({
+        noteId,
+        title: values.title,
+        content: values.content,
+        category: values.category,
+    });
+    
+    if (result.success) {
         toast({ title: 'Note Saved!', description: 'Your changes have been saved successfully.' });
         router.push(`/admin/notes/${noteId}`);
-
-    } catch (e: any) {
-        toast({ title: 'Error Saving Note', description: e.message, variant: 'destructive' });
-    } finally {
-        setIsSubmitting(false);
+    } else {
+        toast({ title: 'Error Saving Note', description: result.message, variant: 'destructive' });
     }
+
+    setIsSubmitting(false);
   }
 
   if (isLoading) {
