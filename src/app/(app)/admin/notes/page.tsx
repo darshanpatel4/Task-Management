@@ -15,7 +15,6 @@ import { Badge } from '@/components/ui/badge';
 import { supabase } from '@/lib/supabaseClient';
 import { useToast } from '@/hooks/use-toast';
 import { useRouter } from 'next/navigation';
-import { getAllNotesAdmin } from '@/actions/adminNoteActions';
 
 interface ProfileMap {
   [userId: string]: Pick<User, 'id' | 'name' | 'avatar'>;
@@ -41,30 +40,31 @@ export default function ManageNotesPage() {
     setError(null);
 
     try {
-      const result = await getAllNotesAdmin();
+      const response = await fetch('/api/get-all-notes');
+      const result = await response.json();
 
-      if (!result.success) {
-        throw new Error(result.message);
+      if (!response.ok || !result.success) {
+        throw new Error(result.message || 'Failed to fetch notes from API.');
       }
       
       const { notesData, profilesData } = result;
 
       let newProfilesMap: ProfileMap = {};
       if (profilesData) {
-        profilesData.forEach(profile => {
+        profilesData.forEach((profile: any) => {
           newProfilesMap[profile.id] = { id: profile.id, name: profile.full_name || 'N/A', avatar: profile.avatar_url };
         });
       }
       setProfilesMap(newProfilesMap);
 
-      const mappedNotes: Note[] = (notesData || []).map(note => ({
+      const mappedNotes: Note[] = (notesData || []).map((note: any) => ({
         id: note.id,
         title: note.title,
         content: note.content,
         admin_id: note.admin_id,
         admin_name: newProfilesMap[note.admin_id]?.name || 'Unknown Admin',
         recipient_user_ids: note.recipient_user_ids || [],
-        recipient_names: (note.recipient_user_ids || []).map(id => newProfilesMap[id]?.name || 'Unknown User'),
+        recipient_names: (note.recipient_user_ids || []).map((id: string) => newProfilesMap[id]?.name || 'Unknown User'),
         created_at: note.created_at,
         updated_at: note.updated_at,
         category: note.category as NoteCategory || 'General',
@@ -73,7 +73,7 @@ export default function ManageNotesPage() {
       setNotes(mappedNotes);
 
     } catch (e: any) {
-      console.error('Error fetching notes via server action:', e);
+      console.error('Error fetching notes via API route:', e);
       setError(e.message || 'Failed to load notes.');
       toast({ title: 'Error', description: e.message || 'Could not load notes.', variant: 'destructive' });
     } finally {
