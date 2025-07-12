@@ -6,36 +6,7 @@ import type { Note, NoteCategory } from '@/types';
 import { z } from 'zod';
 import 'dotenv/config'
 
-// Server action to get all notes using the service role key
-export async function getAllNotesAdmin(): Promise<{ success: boolean; data?: Note[]; message?: string }> {
-  try {
-    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-    const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-
-    if (!supabaseUrl || !serviceRoleKey) {
-      throw new Error('Server environment for database admin access is not configured correctly.');
-    }
-
-    const supabaseAdmin = createClient(supabaseUrl, serviceRoleKey, {
-      auth: { autoRefreshToken: false, persistSession: false },
-    });
-    
-    const { data, error } = await supabaseAdmin
-      .from('notes')
-      .select('id, title, content, admin_id, recipient_user_ids, created_at, updated_at, category, visibility')
-      .order('created_at', { ascending: false });
-
-    if (error) {
-      throw error;
-    }
-    
-    return { success: true, data: data as Note[] };
-  } catch (e: any) {
-    console.error('Error in getAllNotesAdmin server action:', e);
-    return { success: false, message: e.message || 'An unexpected error occurred.' };
-  }
-}
-
+// Server action to get all notes using the service role key - REMOVED TO USE PUBLIC CLIENT
 
 interface UpdateNoteResult {
     success: boolean;
