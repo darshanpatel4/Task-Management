@@ -193,7 +193,7 @@ export function AppHeader() {
   };
 
   if (!mounted) {
-    return <div className="sticky top-0 z-30 flex h-16 items-center justify-between border-b bg-card px-4 sm:px-6"></div>;
+    return <header className="sticky top-0 z-40 flex h-16 items-center justify-between border-b bg-card px-4 sm:px-6"></header>;
   }
 
   const getNotificationIcon = (type?: NotificationType) => {
@@ -209,7 +209,7 @@ export function AppHeader() {
   };
 
   return (
-    <header className="sticky top-0 z-30 flex h-16 items-center justify-between border-b bg-card px-4 sm:px-6">
+    <header className="sticky top-0 z-40 flex h-16 items-center justify-between border-b bg-card px-4 sm:px-6">
       <div className="flex items-center gap-2">
         {isMobile && <SidebarTrigger />}
         <Link href="/dashboard" className="text-xl font-bold text-primary">
@@ -323,4 +323,3 @@ export function AppHeader() {
     </header>
   );
 }
-
