@@ -15,6 +15,17 @@ import { format, parseISO } from 'date-fns';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { supabase } from '@/lib/supabaseClient';
 import { useToast } from '@/hooks/use-toast';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from '@/components/ui/alert-dialog';
 
 const statusOptions: TaskStatus[] = ['Pending', 'In Progress', 'Completed', 'Approved'];
 const priorityOptions: TaskPriority[] = ['Low', 'Medium', 'High'];
@@ -183,43 +194,42 @@ export default function TasksPage() {
         toast({ title: "Supabase Not Configured", description: `Cannot delete task "${taskTitle}".`, variant: "destructive" });
         return;
     }
-    if (confirm(`Are you sure you want to delete task "${taskTitle}"? This action cannot be undone.`)) {
-        setIsLoading(true); 
-        try {
-            const { error: deleteError } = await supabase.from('tasks').delete().match({ id: taskId });
-            
-            if (deleteError) throw deleteError;
+    
+    setIsLoading(true); 
+    try {
+        const { error: deleteError } = await supabase.from('tasks').delete().match({ id: taskId });
+        
+        if (deleteError) throw deleteError;
 
-            toast({ title: "Task Deleted", description: `Task "${taskTitle}" has been deleted.` });
-            fetchTasksAndRelatedData(); 
-        } catch (e: any) {
-            const supabaseErrorCode = e?.code;
-            const supabaseErrorMessage = e?.message;
-            const supabaseErrorDetails = e?.details;
-            const supabaseErrorHint = e?.hint;
+        toast({ title: "Task Deleted", description: `Task "${taskTitle}" has been deleted.` });
+        fetchTasksAndRelatedData(); 
+    } catch (e: any) {
+        const supabaseErrorCode = e?.code;
+        const supabaseErrorMessage = e?.message;
+        const supabaseErrorDetails = e?.details;
+        const supabaseErrorHint = e?.hint;
 
-            let displayMessage = `Could not delete task "${taskTitle}".`;
-            if (supabaseErrorMessage) {
-              displayMessage = supabaseErrorMessage;
-            } else if (supabaseErrorDetails) {
-              displayMessage = supabaseErrorDetails;
-            } else {
-              try {
-                displayMessage = JSON.stringify(e); 
-              } catch (stringifyError) {
-                displayMessage = String(e); 
-              }
-            }
-            
-            console.error(
-              `TasksPage: Error deleting task "${taskTitle}" (ID: ${taskId}). Supabase Code: ${supabaseErrorCode}, Message: ${supabaseErrorMessage}, Details: ${supabaseErrorDetails}, Hint: ${supabaseErrorHint}. Processed display message: ${displayMessage}`, e
-            );
-            console.error(`TasksPage: Full error object for delete task "${taskTitle}" (ID: ${taskId}):`, e);
-            
-            toast({ title: "Error Deleting Task", description: displayMessage, variant: "destructive" });
-        } finally {
-            setIsLoading(false); 
+        let displayMessage = `Could not delete task "${taskTitle}".`;
+        if (supabaseErrorMessage) {
+          displayMessage = supabaseErrorMessage;
+        } else if (supabaseErrorDetails) {
+          displayMessage = supabaseErrorDetails;
+        } else {
+          try {
+            displayMessage = JSON.stringify(e); 
+          } catch (stringifyError) {
+            displayMessage = String(e); 
+          }
         }
+        
+        console.error(
+          `TasksPage: Error deleting task "${taskTitle}" (ID: ${taskId}). Supabase Code: ${supabaseErrorCode}, Message: ${supabaseErrorMessage}, Details: ${supabaseErrorDetails}, Hint: ${supabaseErrorHint}. Processed display message: ${displayMessage}`, e
+        );
+        console.error(`TasksPage: Full error object for delete task "${taskTitle}" (ID: ${taskId}):`, e);
+        
+        toast({ title: "Error Deleting Task", description: displayMessage, variant: "destructive" });
+    } finally {
+        setIsLoading(false); 
     }
   };
 
@@ -370,16 +380,33 @@ export default function TasksPage() {
                                 <Edit3 className="h-4 w-4" />
                               </Button>
                             </Link>
-                            <Button 
-                              variant="ghost" 
-                              size="icon" 
-                              className="text-destructive hover:text-destructive" 
-                              aria-label="Delete task" 
-                              onClick={() => handleDeleteTask(task.id, task.title)}
-                              disabled={!supabase || isLoading}
-                            >
-                              <Trash2 className="h-4 w-4" />
-                            </Button>
+                             <AlertDialog>
+                              <AlertDialogTrigger asChild>
+                                <Button
+                                  variant="ghost"
+                                  size="icon"
+                                  className="text-destructive hover:text-destructive"
+                                  aria-label="Delete task"
+                                  disabled={!supabase || isLoading}
+                                >
+                                  <Trash2 className="h-4 w-4" />
+                                </Button>
+                              </AlertDialogTrigger>
+                              <AlertDialogContent>
+                                <AlertDialogHeader>
+                                  <AlertDialogTitle>Are you sure?</AlertDialogTitle>
+                                  <AlertDialogDescription>
+                                    This will permanently delete the task "{task.title}". This action cannot be undone.
+                                  </AlertDialogDescription>
+                                </AlertDialogHeader>
+                                <AlertDialogFooter>
+                                  <AlertDialogCancel>Cancel</AlertDialogCancel>
+                                  <AlertDialogAction onClick={() => handleDeleteTask(task.id, task.title)}>
+                                    Yes, delete task
+                                  </AlertDialogAction>
+                                </AlertDialogFooter>
+                              </AlertDialogContent>
+                            </AlertDialog>
                           </>
                         )}
                       </div>

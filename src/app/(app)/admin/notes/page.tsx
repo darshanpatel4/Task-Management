@@ -14,6 +14,18 @@ import { Badge } from '@/components/ui/badge';
 import { supabase } from '@/lib/supabaseClient';
 import { useToast } from '@/hooks/use-toast';
 import { useRouter } from 'next/navigation';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from '@/components/ui/alert-dialog';
+
 
 export default function ManageNotesPage() {
   const { currentUser, isAdmin } = useAuth();
@@ -75,30 +87,28 @@ export default function ManageNotesPage() {
       toast({ title: "Error", description: "Supabase client not available.", variant: "destructive" });
       return;
     }
-    if (window.confirm(`Are you sure you want to delete the note "${noteTitle}"? This action cannot be undone.`)) {
-      setIsLoading(true);
-      try {
-        // First delete notifications related to the note.
-        const { error: notificationError } = await supabase.from('notifications').delete().eq('note_id', noteId);
-        if (notificationError) {
-          console.warn(`Could not delete notifications for note ${noteId}:`, notificationError.message);
-        }
-        
-        // Then delete the note itself.
-        const { error: deleteError } = await supabase
-          .from('notes')
-          .delete()
-          .eq('id', noteId);
-
-        if (deleteError) throw deleteError;
-
-        toast({ title: "Note Deleted", description: `Note "${noteTitle}" has been deleted.` });
-        fetchNotes(); // Refresh the list
-      } catch (e: any) {
-        toast({ title: "Error Deleting Note", description: e.message || "Could not delete note.", variant: "destructive" });
-      } finally {
-        setIsLoading(false);
+    setIsLoading(true);
+    try {
+      // First delete notifications related to the note.
+      const { error: notificationError } = await supabase.from('notifications').delete().eq('note_id', noteId);
+      if (notificationError) {
+        console.warn(`Could not delete notifications for note ${noteId}:`, notificationError.message);
       }
+      
+      // Then delete the note itself.
+      const { error: deleteError } = await supabase
+        .from('notes')
+        .delete()
+        .eq('id', noteId);
+
+      if (deleteError) throw deleteError;
+
+      toast({ title: "Note Deleted", description: `Note "${noteTitle}" has been deleted.` });
+      fetchNotes(); // Refresh the list
+    } catch (e: any) {
+      toast({ title: "Error Deleting Note", description: e.message || "Could not delete note.", variant: "destructive" });
+    } finally {
+      setIsLoading(false);
     }
   };
 
@@ -219,17 +229,34 @@ export default function ManageNotesPage() {
                             <Eye className="h-4 w-4" />
                           </Button>
                         </Link>
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className="text-destructive hover:text-destructive"
-                          onClick={() => handleDeleteNote(note.id, note.title)}
-                          aria-label="Delete note"
-                          disabled={!supabase || isLoading || currentUser?.id !== note.admin_id}
-                          title={currentUser?.id !== note.admin_id ? "Only creator can delete" : "Delete note"}
-                        >
-                          <Trash2 className="h-4 w-4" />
-                        </Button>
+                        <AlertDialog>
+                          <AlertDialogTrigger asChild>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="text-destructive hover:text-destructive"
+                              aria-label="Delete note"
+                              disabled={!supabase || isLoading || currentUser?.id !== note.admin_id}
+                              title={currentUser?.id !== note.admin_id ? "Only creator can delete" : "Delete note"}
+                            >
+                              <Trash2 className="h-4 w-4" />
+                            </Button>
+                          </AlertDialogTrigger>
+                          <AlertDialogContent>
+                            <AlertDialogHeader>
+                              <AlertDialogTitle>Are you sure?</AlertDialogTitle>
+                              <AlertDialogDescription>
+                                This will permanently delete the note "{note.title}". This action cannot be undone.
+                              </AlertDialogDescription>
+                            </AlertDialogHeader>
+                            <AlertDialogFooter>
+                              <AlertDialogCancel>Cancel</AlertDialogCancel>
+                              <AlertDialogAction onClick={() => handleDeleteNote(note.id, note.title)}>
+                                Yes, delete note
+                              </AlertDialogAction>
+                            </AlertDialogFooter>
+                          </AlertDialogContent>
+                        </AlertDialog>
                       </div>
                     </TableCell>
                   </TableRow>

@@ -14,6 +14,17 @@ import { useRouter } from 'next/navigation';
 import { supabase } from '@/lib/supabaseClient';
 import { useToast } from '@/hooks/use-toast';
 import Link from 'next/link';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from '@/components/ui/alert-dialog';
 
 export default function UserManagementPage() {
   const { currentUser, isAdmin } = useAuth();
@@ -110,18 +121,16 @@ export default function UserManagementPage() {
       return;
     }
 
-    if (confirm(`Are you sure you want to delete user "${userName}"? This action is permanent and will remove the user from authentication and their profile. This action is currently mocked.`)) {
-      console.warn(`Mock delete user: ${userId} (${userName}). Actual Supabase admin deletion needed.`);
-      // For actual deletion, you'd use supabase.auth.admin.deleteUser(userId)
-      // This requires the SUPABASE_SERVICE_ROLE_KEY to be set in your environment for the admin client.
-      // Since we don't have admin client setup on front-end, we keep it mocked.
-      toast({
-        title: "Mock User Deletion",
-        description: `User ${userName} delete process initiated (mocked). For actual deletion, a Supabase Admin action is required on the backend or via Supabase Studio.`,
-      });
-      // To refresh the list optimistically (or after a real backend call):
-      // setUsers(prevUsers => prevUsers.filter(u => u.id !== userId));
-    }
+    console.warn(`Mock delete user: ${userId} (${userName}). Actual Supabase admin deletion needed.`);
+    // For actual deletion, you'd use supabase.auth.admin.deleteUser(userId)
+    // This requires the SUPABASE_SERVICE_ROLE_KEY to be set in your environment for the admin client.
+    // Since we don't have admin client setup on front-end, we keep it mocked.
+    toast({
+      title: "Mock User Deletion",
+      description: `User ${userName} delete process initiated (mocked). For actual deletion, a Supabase Admin action is required on the backend or via Supabase Studio.`,
+    });
+    // To refresh the list optimistically (or after a real backend call):
+    // setUsers(prevUsers => prevUsers.filter(u => u.id !== userId));
   };
 
   const handleAddUser = () => {
@@ -210,17 +219,34 @@ export default function UserManagementPage() {
                                   <Edit3 className="h-4 w-4" />
                               </Button>
                             </Link>
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              className="text-destructive hover:text-destructive"
-                              onClick={() => handleDeleteUser(user.id, user.name)}
-                              aria-label="Delete user"
-                              disabled={!supabase || isLoading || currentUser?.id === user.id}
-                              title={currentUser?.id === user.id ? "Cannot delete self" : "Delete user"}
-                            >
-                                <Trash2 className="h-4 w-4" />
-                            </Button>
+                            <AlertDialog>
+                              <AlertDialogTrigger asChild>
+                                <Button
+                                  variant="ghost"
+                                  size="icon"
+                                  className="text-destructive hover:text-destructive"
+                                  aria-label="Delete user"
+                                  disabled={!supabase || isLoading || currentUser?.id === user.id}
+                                  title={currentUser?.id === user.id ? "Cannot delete self" : "Delete user"}
+                                >
+                                  <Trash2 className="h-4 w-4" />
+                                </Button>
+                              </AlertDialogTrigger>
+                              <AlertDialogContent>
+                                <AlertDialogHeader>
+                                  <AlertDialogTitle>Are you sure?</AlertDialogTitle>
+                                  <AlertDialogDescription>
+                                    This will permanently delete the user "{user.name}". This action cannot be undone. (This is currently a mock action).
+                                  </AlertDialogDescription>
+                                </AlertDialogHeader>
+                                <AlertDialogFooter>
+                                  <AlertDialogCancel>Cancel</AlertDialogCancel>
+                                  <AlertDialogAction onClick={() => handleDeleteUser(user.id, user.name)}>
+                                    Yes, delete user
+                                  </AlertDialogAction>
+                                </AlertDialogFooter>
+                              </AlertDialogContent>
+                            </AlertDialog>
                         </div>
                       </TableCell>
                     </TableRow>
@@ -234,4 +260,3 @@ export default function UserManagementPage() {
     </div>
   );
 }
-

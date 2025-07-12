@@ -13,6 +13,17 @@ import { useRouter } from 'next/navigation';
 import { supabase } from '@/lib/supabaseClient';
 import { useToast } from '@/hooks/use-toast';
 import { format } from 'date-fns';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from '@/components/ui/alert-dialog';
 
 
 export default function ProjectManagementPage() {
@@ -111,48 +122,47 @@ export default function ProjectManagementPage() {
       });
       return;
     }
-    if (confirm(`Are you sure you want to delete project "${projectName}"? This action cannot be undone.`)) {
-       setIsLoading(true);
-       try {
-        // Also delete related tasks or handle them (e.g., set project_id to null if allowed)
-        // For now, we assume cascade delete handles tasks if setup in DB, or tasks become orphaned.
-        const { error: tasksDeleteError } = await supabase
-          .from('tasks')
+
+    setIsLoading(true);
+    try {
+      // Also delete related tasks or handle them (e.g., set project_id to null if allowed)
+      // For now, we assume cascade delete handles tasks if setup in DB, or tasks become orphaned.
+      const { error: tasksDeleteError } = await supabase
+        .from('tasks')
+        .delete()
+        .match({ project_id: projectId });
+
+      if (tasksDeleteError) {
+        console.warn('Partial delete: Error deleting tasks for project', projectId, tasksDeleteError)
+        // Decide if you want to proceed with project deletion if tasks can't be deleted
+        // For this example, we'll show a warning but proceed.
+          toast({
+          title: "Warning: Tasks Deletion Issue",
+          description: `Could not delete all tasks for project "${projectName}". Project deletion will proceed. Error: ${tasksDeleteError.message}`,
+          variant: "default",
+          duration: 7000,
+        });
+      }
+
+      const { error: deleteError } = await supabase
+          .from('projects')
           .delete()
-          .match({ project_id: projectId });
+          .match({ id: projectId });
 
-        if (tasksDeleteError) {
-          console.warn('Partial delete: Error deleting tasks for project', projectId, tasksDeleteError)
-          // Decide if you want to proceed with project deletion if tasks can't be deleted
-          // For this example, we'll show a warning but proceed.
-           toast({
-            title: "Warning: Tasks Deletion Issue",
-            description: `Could not delete all tasks for project "${projectName}". Project deletion will proceed. Error: ${tasksDeleteError.message}`,
-            variant: "default",
-            duration: 7000,
-          });
-        }
+      if (deleteError) throw deleteError;
+      
+      toast({ title: "Project Deleted", description: `Project "${projectName}" has been deleted.` });
+      setProjects(prevProjects => prevProjects.filter(p => p.id !== projectId)); 
 
-        const { error: deleteError } = await supabase
-            .from('projects')
-            .delete()
-            .match({ id: projectId });
-
-        if (deleteError) throw deleteError;
-        
-        toast({ title: "Project Deleted", description: `Project "${projectName}" has been deleted.` });
-        setProjects(prevProjects => prevProjects.filter(p => p.id !== projectId)); 
-
-       } catch (e: any) {
-         toast({
-            title: "Error Deleting Project",
-            description: e.message || `Could not delete the project "${projectName}".`,
-            variant: "destructive",
-         });
-       } finally {
-         setIsLoading(false);
-         fetchProjects(); // Refresh list
-       }
+    } catch (e: any) {
+      toast({
+          title: "Error Deleting Project",
+          description: e.message || `Could not delete the project "${projectName}".`,
+          variant: "destructive",
+      });
+    } finally {
+      setIsLoading(false);
+      fetchProjects(); // Refresh list
     }
   };
   
@@ -234,9 +244,27 @@ export default function ProjectManagementPage() {
                             <Button variant="ghost" size="icon" onClick={() => handleEditProject(project.id)} aria-label="Edit project" disabled={!supabase || isLoading}>
                                 <Edit3 className="h-4 w-4" />
                             </Button>
-                            <Button variant="ghost" size="icon" className="text-destructive hover:text-destructive" onClick={() => handleDeleteProject(project.id, project.name)} aria-label="Delete project" disabled={!supabase || isLoading}>
-                                <Trash2 className="h-4 w-4" />
-                            </Button>
+                            <AlertDialog>
+                              <AlertDialogTrigger asChild>
+                                <Button variant="ghost" size="icon" className="text-destructive hover:text-destructive" aria-label="Delete project" disabled={!supabase || isLoading}>
+                                    <Trash2 className="h-4 w-4" />
+                                </Button>
+                              </AlertDialogTrigger>
+                              <AlertDialogContent>
+                                <AlertDialogHeader>
+                                  <AlertDialogTitle>Are you sure?</AlertDialogTitle>
+                                  <AlertDialogDescription>
+                                    This will permanently delete the project "{project.name}" and all associated tasks. This action cannot be undone.
+                                  </AlertDialogDescription>
+                                </AlertDialogHeader>
+                                <AlertDialogFooter>
+                                  <AlertDialogCancel>Cancel</AlertDialogCancel>
+                                  <AlertDialogAction onClick={() => handleDeleteProject(project.id, project.name)}>
+                                    Yes, delete project
+                                  </AlertDialogAction>
+                                </AlertDialogFooter>
+                              </AlertDialogContent>
+                            </AlertDialog>
                         </div>
                       </TableCell>
                     </TableRow>
