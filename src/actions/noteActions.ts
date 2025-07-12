@@ -61,22 +61,15 @@ export async function updateNoteContent(formData: {
     
     // First, verify the edit token is valid for this note
     const { data: note, error: fetchError } = await supabaseAdmin
-        .from('notes')
-        .select('security_key')
-        .eq('id', noteId)
+        .from('note_edit_requests')
+        .select('id')
+        .eq('note_id', noteId)
+        .eq('edit_token', editToken)
+        .eq('status', 'approved')
         .single();
     
     if (fetchError || !note) {
-        return { success: false, message: 'Note not found.' };
-    }
-
-    // A note with a null security key is publicly editable, but we need to check the session token
-    if (note.security_key === null && !editToken.startsWith('public_session_')) {
-        return { success: false, message: 'Invalid edit session.' };
-    }
-    
-    if (note.security_key !== null && note.security_key !== editToken) {
-        return { success: false, message: 'Invalid edit token.' };
+        return { success: false, message: 'Invalid or expired edit token.' };
     }
 
     // Token is valid, proceed with update
@@ -110,20 +103,15 @@ export async function requestNoteEditAccess(formData: {
     email: string
 }): Promise<RequestAccessResult> {
     const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-    const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-
-    if (!supabaseUrl || !serviceRoleKey) {
-        return {
-        success: false,
-        message: 'Server environment for database access is not configured correctly.',
-        };
+    const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+    
+    if (!supabaseUrl || !supabaseAnonKey) {
+        return { success: false, message: 'Client environment for database access is not configured.' };
     }
-    const supabaseAdmin = createClient(supabaseUrl, serviceRoleKey, {
-        auth: {
-            autoRefreshToken: false,
-            persistSession: false,
-        },
-    });
+
+    // Use the public anon key for this action, as it's initiated by a public user.
+    // RLS policies on the database will ensure they can only insert.
+    const supabase = createClient(supabaseUrl, supabaseAnonKey);
 
     const validation = requestNoteEditAccessSchema.safeParse(formData);
     if (!validation.success) {
@@ -133,7 +121,7 @@ export async function requestNoteEditAccess(formData: {
     const { noteId, name, email } = validation.data;
     
     try {
-        const { error } = await supabaseAdmin
+        const { error } = await supabase
             .from('note_edit_requests')
             .insert({
                 note_id: noteId,

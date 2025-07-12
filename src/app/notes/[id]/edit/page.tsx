@@ -2,13 +2,13 @@
 'use client';
 
 import { useEffect, useState, useCallback } from 'react';
-import { useParams, useRouter } from 'next/navigation';
+import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import * as z from 'zod';
 import { supabase } from '@/lib/supabaseClient';
 import { useToast } from '@/hooks/use-toast';
-import { verifyNotePassword, updateNoteContent } from '@/actions/noteActions';
+import { updateNoteContent } from '@/actions/noteActions';
 import type { Note } from '@/types';
 import RichTextEditor from '@/components/ui/rich-text-editor';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from '@/components/ui/card';
@@ -25,6 +25,7 @@ type EditFormValues = z.infer<typeof editFormSchema>;
 export default function PublicNoteEditPage() {
   const params = useParams();
   const router = useRouter();
+  const searchParams = useSearchParams();
   const noteId = params.id as string;
   const { toast } = useToast();
 
@@ -48,26 +49,30 @@ export default function PublicNoteEditPage() {
         return;
     }
     
-    const token = sessionStorage.getItem(`note-edit-token-${noteId}`);
+    const token = searchParams.get('token');
     if (!token) {
-        setError("No edit access token found. Please request access again.");
+        setError("No edit access token found in the URL. Please use the link from your approval email.");
         setIsLoading(false);
         return;
     }
-
     setEditToken(token);
-
-    const verificationResult = await verifyNotePassword({ noteId, password: token, isToken: true });
-
-    if (!verificationResult.success) {
-        setError(verificationResult.message || "Invalid edit token. Please request access again.");
-        setIsLoading(false);
-        sessionStorage.removeItem(`note-edit-token-${noteId}`);
-        return;
-    }
 
     try {
         if (!supabase) throw new Error("Database client not available.");
+        
+        // Verify the token is valid and for the correct note
+        const { data: requestData, error: requestError } = await supabase
+            .from('note_edit_requests')
+            .select('id')
+            .eq('note_id', noteId)
+            .eq('edit_token', token)
+            .eq('status', 'approved')
+            .single();
+        
+        if (requestError || !requestData) {
+            throw new Error("This edit link is invalid or has expired. Please request access again.");
+        }
+
         const { data, error: fetchError } = await supabase
             .from('notes')
             .select('id, title, content')
@@ -84,7 +89,7 @@ export default function PublicNoteEditPage() {
     } finally {
         setIsLoading(false);
     }
-  }, [noteId, form]);
+  }, [noteId, form, searchParams]);
 
   useEffect(() => {
     verifyAccessAndFetchNote();
