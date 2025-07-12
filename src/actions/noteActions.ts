@@ -8,61 +8,10 @@ import 'dotenv/config'
 
 // Server action to get all notes using the service role key - REMOVED TO USE PUBLIC CLIENT
 
-interface UpdateNoteResult {
-    success: boolean;
-    message: string;
-}
+// The updateNoteContent function has been removed from this file.
+// The logic is now handled directly in the page component src/app/(app)/admin/notes/edit/[id]/page.tsx
+// to ensure it uses the authenticated client session, bypassing server action environment variable issues.
 
-const updateNoteSchema = z.object({
-    noteId: z.string().uuid(),
-    title: z.string().min(3, 'Title is required.'),
-    content: z.string().min(10, 'Content is required.'),
-    category: z.string(),
-});
-
-export async function updateNoteContent(formData: {
-    noteId: string;
-    title: string;
-    content: string;
-    category: NoteCategory;
-}): Promise<UpdateNoteResult> {
-    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-    const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-
-    if (!supabaseUrl || !serviceRoleKey) {
-        return { success: false, message: 'Server environment not configured for admin actions.' };
-    }
-
-    const validation = updateNoteSchema.safeParse(formData);
-    if (!validation.success) {
-        return { success: false, message: validation.error.errors.map(e => e.message).join(', ') };
-    }
-
-    const { noteId, title, content, category } = validation.data;
-
-    try {
-        const supabaseAdmin = createClient(supabaseUrl, serviceRoleKey, {
-            auth: { autoRefreshToken: false, persistSession: false },
-        });
-
-        const { error } = await supabaseAdmin
-            .from('notes')
-            .update({
-                title,
-                content,
-                category,
-                updated_at: new Date().toISOString(),
-            })
-            .eq('id', noteId);
-
-        if (error) throw error;
-
-        return { success: true, message: 'Note updated successfully.' };
-    } catch (e: any) {
-        console.error('Error in updateNoteContent server action:', e);
-        return { success: false, message: e.message || 'An unexpected error occurred.' };
-    }
-}
 
 // Keep the public-facing actions in this file as well for organization.
 const verifyNotePassword = async (formData: {

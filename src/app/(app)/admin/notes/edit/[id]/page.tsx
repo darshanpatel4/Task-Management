@@ -19,7 +19,6 @@ import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Loader2, AlertTriangle, Save, Ban, Tag, Edit3 } from 'lucide-react';
 import Link from 'next/link';
-import { updateNoteContent } from '@/actions/noteActions';
 
 const editFormSchema = z.object({
   title: z.string().min(3, { message: 'Title must be at least 3 characters.' }),
@@ -89,24 +88,30 @@ export default function AdminNoteEditPage() {
   }, [fetchNote]);
 
   async function onSubmit(values: EditFormValues) {
-    if (!noteId) {
-      toast({ title: 'Error', description: 'Cannot save, missing note ID.', variant: 'destructive' });
+    if (!noteId || !supabase) {
+      toast({ title: 'Error', description: 'Cannot save, missing note ID or database connection.', variant: 'destructive' });
       return;
     }
     setIsSubmitting(true);
     
-    const result = await updateNoteContent({
-        noteId,
-        title: values.title,
-        content: values.content,
-        category: values.category,
-    });
-    
-    if (result.success) {
+    try {
+        const { error } = await supabase
+            .from('notes')
+            .update({
+                title: values.title,
+                content: values.content,
+                category: values.category,
+                updated_at: new Date().toISOString(),
+            })
+            .eq('id', noteId);
+        
+        if (error) throw error;
+        
         toast({ title: 'Note Saved!', description: 'Your changes have been saved successfully.' });
         router.push(`/admin/notes/${noteId}`);
-    } else {
-        toast({ title: 'Error Saving Note', description: result.message, variant: 'destructive' });
+
+    } catch (e: any) {
+        toast({ title: 'Error Saving Note', description: e.message || "An unknown error occurred.", variant: 'destructive' });
     }
 
     setIsSubmitting(false);
