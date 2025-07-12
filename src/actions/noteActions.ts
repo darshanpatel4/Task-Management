@@ -4,77 +4,19 @@
 import { createClient } from '@supabase/supabase-js';
 import { z } from 'zod';
 
-const verifyPasswordSchema = z.object({
-  noteId: z.string().uuid(),
-  password: z.string(),
-  isToken: z.boolean().optional(),
-});
-
-interface VerifyPasswordResult {
-  success: boolean;
-  message: string;
-  token?: string;
-}
-
-export async function verifyNotePassword(formData: {
+const verifyNotePassword = async (formData: {
   noteId: string;
   password?: string;
   isToken?: boolean;
-}): Promise<VerifyPasswordResult> {
-  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-
-  if (!supabaseUrl || !serviceRoleKey) {
-    return {
-      success: false,
-      message: 'Server environment for database access is not configured correctly.',
-    };
-  }
-  const supabaseAdmin = createClient(supabaseUrl, serviceRoleKey, {
-      auth: {
-        autoRefreshToken: false,
-        persistSession: false,
-      },
-    });
-
-  const validation = verifyPasswordSchema.safeParse(formData);
-  if (!validation.success) {
-    const errorMessages = validation.error.errors.map((e) => e.message).join(', ');
-    return { success: false, message: `Invalid input: ${errorMessages}` };
-  }
-
-  const { noteId, password, isToken } = validation.data;
-
-  try {
-    const { data: note, error } = await supabaseAdmin
-      .from('notes')
-      .select('security_key')
-      .eq('id', noteId)
-      .single();
-
-    if (error || !note) {
-      return { success: false, message: 'Note not found.' };
-    }
-
-    // A note with a NULL security_key is publicly editable.
-    if (note.security_key === null) {
-      const tempToken = `public_session_${Math.random().toString(36).substring(2)}`;
-      return { success: true, message: 'Access granted.', token: tempToken };
-    }
-
-    const keyToCompare = isToken ? note.security_key : password;
-
-    if (note.security_key === keyToCompare) {
-        return { success: true, message: 'Access granted.', token: note.security_key };
-    } else {
-        return { success: false, message: 'Incorrect password.' };
-    }
-
-  } catch (e: any) {
-    console.error('Unexpected error verifying password:', e);
-    return { success: false, message: `An unexpected server error occurred: ${e.message || 'Unknown error'}` };
-  }
-}
+}) => {
+  // This server action is now deprecated in favor of the /api/verify-note-password route.
+  // The API route pattern is more stable for handling environment variables.
+  // This function is kept to prevent breaking imports but should not be used.
+  return {
+    success: false,
+    message: 'This action is deprecated. Please use the API route.',
+  };
+};
 
 
 const updateNoteContentSchema = z.object({
@@ -218,3 +160,5 @@ export async function requestNoteEditAccess(formData: {
         return { success: false, message: `An unexpected error occurred: ${e.message || 'Unknown error'}` };
     }
 }
+
+export { verifyNotePassword };

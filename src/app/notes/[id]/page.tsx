@@ -46,6 +46,28 @@ export default function PublicNotePage() {
     defaultValues: { password: '' },
   });
 
+  const checkTokenAccess = useCallback(async () => {
+    const editToken = sessionStorage.getItem(`note-edit-token-${noteId}`);
+    if(editToken) {
+      try {
+        const response = await fetch('/api/verify-note-password', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ noteId, password: editToken, isToken: true }),
+        });
+        const result = await response.json();
+        if (result.success) {
+            setHasEditAccess(true);
+        } else {
+            sessionStorage.removeItem(`note-edit-token-${noteId}`);
+        }
+      } catch (e) {
+        console.error("Failed to verify existing session token", e);
+        sessionStorage.removeItem(`note-edit-token-${noteId}`);
+      }
+    }
+  }, [noteId]);
+
   const fetchPublicNote = useCallback(async () => {
     if (!noteId) {
       setError('Note ID is missing.');
@@ -91,16 +113,7 @@ export default function PublicNotePage() {
         };
         setNote(fetchedNote);
 
-        // Check for session storage token
-        const editToken = sessionStorage.getItem(`note-edit-token-${noteId}`);
-        if(editToken) {
-            const { success } = await verifyNotePassword({ noteId, password: editToken, isToken: true });
-            if (success) {
-                setHasEditAccess(true);
-            } else {
-                sessionStorage.removeItem(`note-edit-token-${noteId}`);
-            }
-        }
+        await checkTokenAccess();
 
         const { data: profileData, error: profileError } = await supabase
           .from('profiles')
@@ -125,7 +138,7 @@ export default function PublicNotePage() {
     } finally {
       setIsLoading(false);
     }
-  }, [noteId]);
+  }, [noteId, checkTokenAccess]);
 
   useEffect(() => {
     fetchPublicNote();
@@ -134,28 +147,41 @@ export default function PublicNotePage() {
   async function onSubmit(values: PasswordFormValues) {
     if (!noteId) return;
     setIsSubmitting(true);
-    const result = await verifyNotePassword({
-      noteId,
-      password: values.password,
-    });
+    
+    try {
+      const response = await fetch('/api/verify-note-password', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ noteId: noteId, password: values.password }),
+      });
+      
+      const result = await response.json();
 
-    if (result.success && result.token) {
-      toast({
-        title: 'Access Granted!',
-        description: 'You can now edit this note.',
-      });
-      sessionStorage.setItem(`note-edit-token-${noteId}`, result.token);
-      setDialogOpen(false);
-      form.reset();
-      router.push(`/notes/${noteId}/edit`);
-    } else {
-      toast({
-        title: 'Access Denied',
-        description: result.message || 'The password was incorrect.',
-        variant: 'destructive',
-      });
+      if (response.ok && result.success && result.token) {
+        toast({
+          title: 'Access Granted!',
+          description: 'You can now edit this note.',
+        });
+        sessionStorage.setItem(`note-edit-token-${noteId}`, result.token);
+        setDialogOpen(false);
+        form.reset();
+        router.push(`/notes/${noteId}/edit`);
+      } else {
+        toast({
+          title: 'Access Denied',
+          description: result.message || 'The password was incorrect.',
+          variant: 'destructive',
+        });
+      }
+    } catch (error) {
+       toast({
+          title: 'Network Error',
+          description: 'Could not connect to the server. Please try again.',
+          variant: 'destructive',
+        });
+    } finally {
+      setIsSubmitting(false);
     }
-    setIsSubmitting(false);
   }
 
   if (isLoading) {
@@ -180,7 +206,7 @@ export default function PublicNotePage() {
     );
   }
   
-  const canEdit = hasEditAccess || (note.security_key === null); // Allow edit if no password is set
+  const canEdit = hasEditAccess || (note.security_key === null);
 
   return (
     <div className="flex justify-center bg-background py-8 sm:py-12 md:py-16">
@@ -218,7 +244,7 @@ export default function PublicNotePage() {
                                 </DialogDescription>
                               </DialogHeader>
                               <Form {...form}>
-                                <form action={form.handleSubmit(onSubmit)} className="space-y-4">
+                                <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
                                   <FormField
                                     control={form.control}
                                     name="password"
