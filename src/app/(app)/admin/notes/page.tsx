@@ -7,7 +7,7 @@ import { useAuth } from '@/context/AuthContext';
 import type { Note, User, NoteCategory } from '@/types';
 import { Button } from '@/components/ui/button';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { PlusCircle, Eye, Trash2, Loader2, AlertTriangle, Share2, Globe, EyeOff, Edit3 } from 'lucide-react';
+import { PlusCircle, Eye, Trash2, Loader2, AlertTriangle, Share2, Globe, EyeOff, Edit3, Tag } from 'lucide-react';
 import { format, parseISO } from 'date-fns';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -15,8 +15,9 @@ import { supabase } from '@/lib/supabaseClient';
 import { useToast } from '@/hooks/use-toast';
 import { useRouter } from 'next/navigation';
 
-interface ProfileMap {
-  [userId: string]: Pick<User, 'id' | 'name' | 'avatar'>;
+// Simplified Note type for this page to avoid deep nesting issues
+interface AdminNote extends Omit<Note, 'admin_name' | 'recipient_names'> {
+  admin_profile: { full_name: string | null } | null;
 }
 
 export default function ManageNotesPage() {
@@ -24,12 +25,11 @@ export default function ManageNotesPage() {
   const { toast } = useToast();
   const router = useRouter();
 
-  const [notes, setNotes] = useState<Note[]>([]);
-  const [profilesMap, setProfilesMap] = useState<ProfileMap>({});
+  const [notes, setNotes] = useState<AdminNote[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  const fetchNotesAndProfiles = useCallback(async () => {
+  const fetchNotes = useCallback(async () => {
     if (!isAdmin || !supabase) {
       setIsLoading(false);
       setError(isAdmin ? "Supabase client not available." : "Access Denied.");
@@ -39,54 +39,29 @@ export default function ManageNotesPage() {
     setError(null);
 
     try {
-      const { data: notesData, error: notesError } = await supabase
+      // Fetch notes and the admin profile in one go.
+      // This is simplified to prevent the JSON error.
+      const { data, error: notesError } = await supabase
         .from('notes')
-        .select('id, title, content, admin_id, recipient_user_ids, created_at, updated_at, category, visibility')
+        .select(`
+          id, 
+          title, 
+          content, 
+          admin_id, 
+          recipient_user_ids, 
+          created_at, 
+          updated_at, 
+          category, 
+          visibility,
+          admin_profile:profiles!notes_admin_id_fkey(full_name)
+        `)
         .order('created_at', { ascending: false });
 
       if (notesError) {
         throw notesError;
       }
-
-      const allUserIds = new Set<string>();
-      (notesData || []).forEach(note => {
-        allUserIds.add(note.admin_id);
-        if (note.recipient_user_ids) {
-          note.recipient_user_ids.forEach((id: string) => allUserIds.add(id));
-        }
-      });
       
-      let newProfilesMap: ProfileMap = {};
-      if (allUserIds.size > 0) {
-        const { data: profilesData, error: profilesError } = await supabase
-          .from('profiles')
-          .select('id, full_name, avatar_url')
-          .in('id', Array.from(allUserIds));
-
-        if (profilesError) {
-          console.warn('Warning: Could not fetch some profiles for notes page:', profilesError.message);
-        } else {
-            (profilesData || []).forEach((profile: any) => {
-                newProfilesMap[profile.id] = { id: profile.id, name: profile.full_name || 'N/A', avatar: profile.avatar_url };
-            });
-        }
-      }
-      setProfilesMap(newProfilesMap);
-
-      const mappedNotes: Note[] = (notesData || []).map((note: any) => ({
-        id: note.id,
-        title: note.title,
-        content: note.content,
-        admin_id: note.admin_id,
-        admin_name: newProfilesMap[note.admin_id]?.name || 'Unknown Admin',
-        recipient_user_ids: note.recipient_user_ids || [],
-        recipient_names: (note.recipient_user_ids || []).map((id: string) => newProfilesMap[id]?.name || 'Unknown User'),
-        created_at: note.created_at,
-        updated_at: note.updated_at,
-        category: note.category as NoteCategory || 'General',
-        visibility: note.visibility as Note['visibility'] || 'private',
-      }));
-      setNotes(mappedNotes);
+      setNotes(data as AdminNote[]);
 
     } catch (e: any) {
       console.error('Error fetching notes:', e);
@@ -98,8 +73,8 @@ export default function ManageNotesPage() {
   }, [isAdmin, toast]);
 
   useEffect(() => {
-    fetchNotesAndProfiles();
-  }, [fetchNotesAndProfiles]);
+    fetchNotes();
+  }, [fetchNotes]);
 
   const handleCopyLink = (noteId: string) => {
     const url = `${window.location.origin}/notes/${noteId}`;
@@ -115,27 +90,16 @@ export default function ManageNotesPage() {
       toast({ title: "Error", description: "Supabase client not available.", variant: "destructive" });
       return;
     }
-    if (confirm(`Are you sure you want to delete the note "${noteTitle}"? This action cannot be undone.`)) {
+    if (window.confirm(`Are you sure you want to delete the note "${noteTitle}"? This action cannot be undone.`)) {
       setIsLoading(true);
       try {
-        // Correctly delete related notifications first
-        const { error: notificationsDeleteError } = await supabase
-          .from('notifications')
-          .delete()
-          .eq('note_id', noteId);
-
-        if (notificationsDeleteError) {
-          // It's better to warn the user but still attempt to delete the note itself
-          console.warn('Partial delete: Error deleting notifications for note', noteId, notificationsDeleteError);
-           toast({
-            title: "Warning: Notifications Deletion Issue",
-            description: `Could not delete all notifications for note "${noteTitle}". Note deletion will proceed. Error: ${notificationsDeleteError.message}`,
-            variant: "default",
-            duration: 7000,
-          });
+        // First delete notifications related to the note.
+        const { error: notificationError } = await supabase.from('notifications').delete().eq('note_id', noteId);
+        if (notificationError) {
+          console.warn(`Could not delete notifications for note ${noteId}:`, notificationError.message);
         }
         
-        // Then delete the note itself
+        // Then delete the note itself.
         const { error: deleteError } = await supabase
           .from('notes')
           .delete()
@@ -144,7 +108,7 @@ export default function ManageNotesPage() {
         if (deleteError) throw deleteError;
 
         toast({ title: "Note Deleted", description: `Note "${noteTitle}" has been deleted.` });
-        fetchNotesAndProfiles(); // Refresh the list
+        fetchNotes(); // Refresh the list
       } catch (e: any) {
         toast({ title: "Error Deleting Note", description: e.message || "Could not delete note.", variant: "destructive" });
       } finally {
@@ -161,22 +125,6 @@ export default function ManageNotesPage() {
       </Card>
     );
   }
-
-  const displayRecipients = (note: Note) => {
-    const { recipient_user_ids, recipient_names } = note;
-    if (!recipient_user_ids || recipient_user_ids.length === 0) return <Badge variant="outline">No Recipients</Badge>;
-    
-    const namesToDisplay = recipient_names && recipient_names.length === recipient_user_ids.length 
-      ? recipient_names 
-      : recipient_user_ids.map(id => profilesMap[id]?.name || 'Unknown');
-
-    if (namesToDisplay.length > 2) {
-      return <Badge variant="secondary">{namesToDisplay.length} Recipients</Badge>;
-    }
-    return namesToDisplay.map((name, index) => (
-      <Badge key={recipient_user_ids[index]} variant="secondary" className="mr-1 mb-1">{name}</Badge>
-    ));
-  };
 
   const getCategoryBadgeVariant = (category?: NoteCategory | null): "default" | "secondary" | "destructive" | "outline" => {
     switch (category) {
@@ -220,7 +168,7 @@ export default function ManageNotesPage() {
               <AlertTriangle className="h-8 w-8 mb-2" />
               <p className="font-semibold">Error Loading Notes</p>
               <p className="text-sm">{error}</p>
-              <Button variant="outline" size="sm" className="mt-4" onClick={fetchNotesAndProfiles}>Try Again</Button>
+              <Button variant="outline" size="sm" className="mt-4" onClick={fetchNotes}>Try Again</Button>
             </div>
           )}
           {!isLoading && !error && notes.length === 0 && (
@@ -259,9 +207,7 @@ export default function ManageNotesPage() {
                       </Badge>
                     </TableCell>
                     <TableCell className="max-w-sm">
-                        <div className="flex flex-wrap gap-1">
-                            {displayRecipients(note)}
-                        </div>
+                        <Badge variant="secondary">{note.recipient_user_ids?.length || 0} Recipients</Badge>
                     </TableCell>
                     <TableCell>{note.created_at ? format(parseISO(note.created_at), 'MMM d, yyyy') : 'N/A'}</TableCell>
                     <TableCell className="text-right">
