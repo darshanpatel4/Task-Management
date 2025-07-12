@@ -14,7 +14,6 @@ import { Badge } from '@/components/ui/badge';
 import { supabase } from '@/lib/supabaseClient';
 import { useToast } from '@/hooks/use-toast';
 import { useRouter } from 'next/navigation';
-import { getAllNotesAdmin } from '@/actions/noteActions';
 
 export default function ManageNotesPage() {
   const { currentUser, isAdmin } = useAuth();
@@ -26,18 +25,22 @@ export default function ManageNotesPage() {
   const [error, setError] = useState<string | null>(null);
 
   const fetchNotes = useCallback(async () => {
-    if (!isAdmin) {
+    if (!isAdmin || !supabase) {
       setIsLoading(false);
-      setError("Access Denied.");
+      setError(isAdmin ? "Supabase client not available." : "Access Denied.");
       return;
     }
     setIsLoading(true);
     setError(null);
 
     try {
-      const { success, data, message } = await getAllNotesAdmin();
-      if (!success) {
-        throw new Error(message);
+      const { data, error: fetchError } = await supabase
+        .from('notes')
+        .select('id, title, content, admin_id, recipient_user_ids, created_at, updated_at, category, visibility')
+        .order('created_at', { ascending: false });
+
+      if (fetchError) {
+        throw fetchError;
       }
       setNotes(data || []);
     } catch (e: any) {
