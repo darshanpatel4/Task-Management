@@ -10,34 +10,16 @@ const adminUpdateNoteSchema = z.object({
   category: z.string(),
 });
 
-// Helper function to get an authenticated Supabase client from the request
-async function getSupabaseClient(request: Request): Promise<SupabaseClient | null> {
-    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
-    const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
-    const token = request.headers.get('Authorization')?.replace('Bearer ', '');
-    
-    if (!token) return null;
-
-    const supabase = createClient(supabaseUrl, supabaseAnonKey, {
-      global: { headers: { Authorization: `Bearer ${token}` } },
-    });
-    
-    const { data: { user } } = await supabase.auth.getUser();
-    
-    if (!user) return null;
-
-    return supabase;
-}
-
 export async function POST(request: Request) {
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
   if (!supabaseUrl || !serviceRoleKey) {
-    return NextResponse.json(
-      { success: false, message: 'Server environment for database access is not configured correctly.' },
-      { status: 500 }
-    );
+    // This check will now reliably fail only if the .env file is truly missing,
+    // as dotenv-cli in package.json ensures they are loaded.
+    const message = 'Server environment for database access is not configured correctly. Ensure .env file with Supabase keys exists.';
+    console.error(`update-note-admin: ${message}`);
+    return NextResponse.json({ success: false, message }, { status: 500 });
   }
 
   let body;
