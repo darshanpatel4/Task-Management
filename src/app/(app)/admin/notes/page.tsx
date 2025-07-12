@@ -17,7 +17,7 @@ import { useRouter } from 'next/navigation';
 
 // Simplified Note type for this page to avoid deep nesting issues
 interface AdminNote extends Omit<Note, 'admin_name' | 'recipient_names'> {
-  admin_profile: { full_name: string | null } | null;
+  // admin_profile is removed to fix the query issue
 }
 
 export default function ManageNotesPage() {
@@ -39,8 +39,7 @@ export default function ManageNotesPage() {
     setError(null);
 
     try {
-      // Fetch notes and the admin profile in one go.
-      // This is simplified to prevent the JSON error.
+      // This query is now simplified to remove the failing join.
       const { data, error: notesError } = await supabase
         .from('notes')
         .select(`
@@ -52,8 +51,7 @@ export default function ManageNotesPage() {
           created_at, 
           updated_at, 
           category, 
-          visibility,
-          admin_profile:profiles!notes_admin_id_fkey(full_name)
+          visibility
         `)
         .order('created_at', { ascending: false });
 
