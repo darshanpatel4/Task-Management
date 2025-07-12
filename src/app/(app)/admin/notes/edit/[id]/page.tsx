@@ -9,7 +9,6 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import * as z from 'zod';
 import { supabase } from '@/lib/supabaseClient';
 import { useToast } from '@/hooks/use-toast';
-import { adminUpdateNote } from '@/actions/noteActions';
 import type { Note, NoteCategory } from '@/types';
 import { noteCategories } from '@/types';
 import RichTextEditor from '@/components/ui/rich-text-editor';
@@ -94,20 +93,33 @@ export default function AdminNoteEditPage() {
       return;
     }
     setIsSubmitting(true);
-    const result = await adminUpdateNote({
-      noteId,
-      title: values.title,
-      content: values.content,
-      category: values.category,
-    });
+    
+    try {
+        const response = await fetch('/api/update-note-admin', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                noteId,
+                title: values.title,
+                content: values.content,
+                category: values.category,
+            }),
+        });
 
-    if (result.success) {
-      toast({ title: 'Note Saved!', description: 'Your changes have been saved successfully.' });
-      router.push(`/admin/notes/${noteId}`);
-    } else {
-      toast({ title: 'Error Saving Note', description: result.message, variant: 'destructive' });
+        const result = await response.json();
+        
+        if (!response.ok) {
+            throw new Error(result.message || 'An unknown server error occurred');
+        }
+
+        toast({ title: 'Note Saved!', description: 'Your changes have been saved successfully.' });
+        router.push(`/admin/notes/${noteId}`);
+
+    } catch (e: any) {
+        toast({ title: 'Error Saving Note', description: e.message, variant: 'destructive' });
+    } finally {
+        setIsSubmitting(false);
     }
-    setIsSubmitting(false);
   }
 
   if (isLoading) {

@@ -8,7 +8,6 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import * as z from 'zod';
 import { supabase } from '@/lib/supabaseClient';
 import { useToast } from '@/hooks/use-toast';
-import { updateNoteContent } from '@/actions/noteActions';
 import type { Note } from '@/types';
 import RichTextEditor from '@/components/ui/rich-text-editor';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from '@/components/ui/card';
@@ -101,19 +100,30 @@ export default function PublicNoteEditPage() {
         return;
     }
     setIsSubmitting(true);
-    const result = await updateNoteContent({
-        noteId,
-        content: values.content,
-        editToken,
-    });
+    try {
+        const response = await fetch('/api/update-note-public', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                noteId,
+                content: values.content,
+                editToken,
+            }),
+        });
 
-    if (result.success) {
+        const result = await response.json();
+
+        if (!response.ok) {
+            throw new Error(result.message || 'An unknown error occurred.');
+        }
+
         toast({ title: 'Note Saved!', description: 'Your changes have been saved successfully.' });
         router.push(`/notes/${noteId}`);
-    } else {
-        toast({ title: 'Error Saving Note', description: result.message, variant: 'destructive' });
+    } catch (e: any) {
+        toast({ title: 'Error Saving Note', description: e.message, variant: 'destructive' });
+    } finally {
+        setIsSubmitting(false);
     }
-    setIsSubmitting(false);
   }
 
   if (isLoading) {
