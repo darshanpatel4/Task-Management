@@ -1,13 +1,60 @@
 
 'use server';
 
-import { supabase } from '@/lib/supabaseClient';
 import { createClient } from '@supabase/supabase-js';
-import type { NoteCategory } from '@/types';
+import type { Note, NoteCategory } from '@/types';
 import { z } from 'zod';
 
-// This is a new, simplified server action for updating note content.
-// It will be called from the admin edit page.
+interface GetAllNotesAdminResult {
+    success: boolean;
+    data?: Note[];
+    message: string;
+}
+
+export async function getAllNotesAdmin(): Promise<GetAllNotesAdminResult> {
+    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+    const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+    if (!supabaseUrl || !serviceRoleKey) {
+        return {
+            success: false,
+            message: 'Server environment for database admin access is not configured correctly.',
+        };
+    }
+
+    try {
+        const supabaseAdmin = createClient(supabaseUrl, serviceRoleKey, {
+            auth: {
+                autoRefreshToken: false,
+                persistSession: false,
+            },
+        });
+
+        const { data, error } = await supabaseAdmin
+            .from('notes')
+            .select(`
+                id,
+                title,
+                content,
+                admin_id,
+                recipient_user_ids,
+                created_at,
+                updated_at,
+                category,
+                visibility
+            `)
+            .order('created_at', { ascending: false });
+
+        if (error) throw error;
+        
+        return { success: true, data: data as Note[], message: 'Notes fetched successfully.' };
+
+    } catch (e: any) {
+        console.error('Error in getAllNotesAdmin server action:', e);
+        return { success: false, message: e.message || 'An unexpected error occurred.' };
+    }
+}
+
 
 interface UpdateNoteResult {
     success: boolean;

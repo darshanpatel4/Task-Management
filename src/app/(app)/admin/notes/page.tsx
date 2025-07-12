@@ -14,53 +14,32 @@ import { Badge } from '@/components/ui/badge';
 import { supabase } from '@/lib/supabaseClient';
 import { useToast } from '@/hooks/use-toast';
 import { useRouter } from 'next/navigation';
-
-// Simplified Note type for this page to avoid deep nesting issues
-interface AdminNote extends Omit<Note, 'admin_name' | 'recipient_names'> {
-  // admin_profile is removed to fix the query issue
-}
+import { getAllNotesAdmin } from '@/actions/noteActions';
 
 export default function ManageNotesPage() {
   const { currentUser, isAdmin } = useAuth();
   const { toast } = useToast();
   const router = useRouter();
 
-  const [notes, setNotes] = useState<AdminNote[]>([]);
+  const [notes, setNotes] = useState<Note[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   const fetchNotes = useCallback(async () => {
-    if (!isAdmin || !supabase) {
+    if (!isAdmin) {
       setIsLoading(false);
-      setError(isAdmin ? "Supabase client not available." : "Access Denied.");
+      setError("Access Denied.");
       return;
     }
     setIsLoading(true);
     setError(null);
 
     try {
-      // This query is now simplified to remove the failing join.
-      const { data, error: notesError } = await supabase
-        .from('notes')
-        .select(`
-          id, 
-          title, 
-          content, 
-          admin_id, 
-          recipient_user_ids, 
-          created_at, 
-          updated_at, 
-          category, 
-          visibility
-        `)
-        .order('created_at', { ascending: false });
-
-      if (notesError) {
-        throw notesError;
+      const { success, data, message } = await getAllNotesAdmin();
+      if (!success) {
+        throw new Error(message);
       }
-      
-      setNotes(data as AdminNote[]);
-
+      setNotes(data || []);
     } catch (e: any) {
       console.error('Error fetching notes:', e);
       setError(e.message || 'Failed to load notes.');
