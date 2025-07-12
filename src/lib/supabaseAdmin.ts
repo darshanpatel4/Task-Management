@@ -6,23 +6,28 @@ import { createClient, SupabaseClient } from '@supabase/supabase-js';
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const supabaseServiceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
-// Throw an error if the required environment variables are not set.
-// This prevents the client from being null and provides a clear error message.
-if (!supabaseUrl || !supabaseServiceRoleKey) {
-  throw new Error(
+let supabaseAdminInstance: SupabaseClient | null = null;
+
+if (supabaseUrl && supabaseServiceRoleKey) {
+  try {
+    supabaseAdminInstance = createClient(supabaseUrl, supabaseServiceRoleKey, {
+      auth: {
+        autoRefreshToken: false,
+        persistSession: false,
+      },
+    });
+    console.log("Supabase admin client initialized successfully.");
+  } catch (error) {
+    console.error("Error initializing Supabase admin client:", error);
+  }
+} else {
+  // This warning is helpful for debugging during development
+  console.warn(
     'Supabase admin client could not be initialized. ' +
     'Check that NEXT_PUBLIC_SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY are set in your environment. ' +
     'Admin-level server actions will fail.'
   );
 }
 
-// Initialize the client directly. The check above guarantees the variables are present.
-const supabaseAdmin: SupabaseClient = createClient(supabaseUrl, supabaseServiceRoleKey, {
-  auth: {
-    autoRefreshToken: false,
-    persistSession: false,
-  },
-});
-
-// Export the singleton instance
-export { supabaseAdmin };
+// Export the potentially null instance. It's the action's responsibility to handle it.
+export const supabaseAdmin = supabaseAdminInstance;
