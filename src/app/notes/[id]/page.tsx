@@ -218,7 +218,7 @@ export default function PublicNotePage() {
                                 </DialogDescription>
                               </DialogHeader>
                               <Form {...form}>
-                                <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
+                                <form action={form.handleSubmit(onSubmit)} className="space-y-4">
                                   <FormField
                                     control={form.control}
                                     name="password"

@@ -1,7 +1,7 @@
 
 'use server';
 
-import { supabaseAdmin } from '@/lib/supabaseAdmin'; // Import the robust admin client
+import { createClient } from '@supabase/supabase-js';
 import { z } from 'zod';
 
 const verifyPasswordSchema = z.object({
@@ -21,6 +21,22 @@ export async function verifyNotePassword(formData: {
   password?: string;
   isToken?: boolean;
 }): Promise<VerifyPasswordResult> {
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+  if (!supabaseUrl || !serviceRoleKey) {
+    return {
+      success: false,
+      message: 'Server environment for database access is not configured correctly.',
+    };
+  }
+  const supabaseAdmin = createClient(supabaseUrl, serviceRoleKey, {
+      auth: {
+        autoRefreshToken: false,
+        persistSession: false,
+      },
+    });
+
   const validation = verifyPasswordSchema.safeParse(formData);
   if (!validation.success) {
     const errorMessages = validation.error.errors.map((e) => e.message).join(', ');
@@ -30,7 +46,7 @@ export async function verifyNotePassword(formData: {
   const { noteId, password, isToken } = validation.data;
 
   try {
-    const { data: note, error } = await supabaseAdmin // Use the imported admin client
+    const { data: note, error } = await supabaseAdmin
       .from('notes')
       .select('security_key')
       .eq('id', noteId)
@@ -56,10 +72,6 @@ export async function verifyNotePassword(formData: {
 
   } catch (e: any) {
     console.error('Unexpected error verifying password:', e);
-    // Check if the error is from our explicit throw in supabaseAdmin.ts
-    if (e.message?.startsWith('SUPABASE_ADMIN_ERROR')) {
-        return { success: false, message: 'Server environment for database access is not configured correctly.' };
-    }
     return { success: false, message: `An unexpected server error occurred: ${e.message || 'Unknown error'}` };
   }
 }
@@ -81,6 +93,23 @@ export async function updateNoteContent(formData: {
     content: string,
     editToken: string
 }): Promise<UpdateNoteResult> {
+    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+    const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+    if (!supabaseUrl || !serviceRoleKey) {
+        return {
+        success: false,
+        message: 'Server environment for database access is not configured correctly.',
+        };
+    }
+    const supabaseAdmin = createClient(supabaseUrl, serviceRoleKey, {
+        auth: {
+            autoRefreshToken: false,
+            persistSession: false,
+        },
+    });
+
+
     const validation = updateNoteContentSchema.safeParse(formData);
     if (!validation.success) {
         const errorMessages = validation.error.errors.map((e) => e.message).join(', ');
@@ -138,6 +167,22 @@ export async function requestNoteEditAccess(formData: {
     name: string,
     email: string
 }): Promise<RequestAccessResult> {
+    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+    const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+    if (!supabaseUrl || !serviceRoleKey) {
+        return {
+        success: false,
+        message: 'Server environment for database access is not configured correctly.',
+        };
+    }
+    const supabaseAdmin = createClient(supabaseUrl, serviceRoleKey, {
+        auth: {
+            autoRefreshToken: false,
+            persistSession: false,
+        },
+    });
+
     const validation = requestNoteEditAccessSchema.safeParse(formData);
     if (!validation.success) {
         const errorMessages = validation.error.errors.map((e) => e.message).join(', ');
@@ -170,9 +215,6 @@ export async function requestNoteEditAccess(formData: {
 
     } catch (e: any) {
         console.error('Unexpected error creating edit request:', e);
-        if (e.message?.startsWith('SUPABASE_ADMIN_ERROR')) {
-            return { success: false, message: 'Server environment for database access is not configured correctly.' };
-        }
         return { success: false, message: `An unexpected error occurred: ${e.message || 'Unknown error'}` };
     }
 }
