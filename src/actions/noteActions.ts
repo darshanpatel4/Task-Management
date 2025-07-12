@@ -109,8 +109,6 @@ export async function requestNoteEditAccess(formData: {
         return { success: false, message: 'Client environment for database access is not configured.' };
     }
 
-    // Use the public anon key for this action, as it's initiated by a public user.
-    // RLS policies on the database will ensure they can only insert.
     const supabase = createClient(supabaseUrl, supabaseAnonKey);
 
     const validation = requestNoteEditAccessSchema.safeParse(formData);
@@ -121,6 +119,29 @@ export async function requestNoteEditAccess(formData: {
     const { noteId, name, email } = validation.data;
     
     try {
+        // Check for existing pending or approved requests for this note from this email
+        const { data: existingRequest, error: checkError } = await supabase
+            .from('note_edit_requests')
+            .select('status')
+            .eq('note_id', noteId)
+            .eq('requester_email', email)
+            .in('status', ['pending', 'approved'])
+            .maybeSingle();
+
+        if (checkError) {
+            console.error('Error checking for existing requests:', checkError);
+            // Decide to proceed or not. For now, we'll let it proceed but log the error.
+        }
+
+        if (existingRequest) {
+            if (existingRequest.status === 'pending') {
+                return { success: false, message: "You already have a pending request to edit this note. The administrator will review it shortly." };
+            }
+            if (existingRequest.status === 'approved') {
+                 return { success: false, message: "Your request has already been approved. Please check your email for the edit link." };
+            }
+        }
+
         const { error } = await supabase
             .from('note_edit_requests')
             .insert({

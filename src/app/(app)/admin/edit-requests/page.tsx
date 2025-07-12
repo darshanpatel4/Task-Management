@@ -84,26 +84,22 @@ export default function EditRequestsPage() {
         toast({ title: 'Success', description: `Request has been ${newStatus}.` });
         
         // Send email notification to user
-        const editUrl = `${window.location.origin}/notes/${updatedRequest.note.id}/edit`;
         const noteUrl = `${window.location.origin}/notes/${updatedRequest.note.id}`;
 
         let emailSubject = '';
         let emailContent = '';
 
         if (newStatus === 'approved') {
+            const editUrl = `${window.location.origin}/notes/${updatedRequest.note.id}/edit?token=${updatedRequest.edit_token}`;
             emailSubject = `Your request to edit "${updatedRequest.note.title}" has been approved!`;
             emailContent = `
                 <p>Hello ${updatedRequest.requester_name},</p>
                 <p>Great news! Your request to edit the note "<strong>${updatedRequest.note.title}</strong>" has been approved by an administrator.</p>
-                <p>You can now edit the note by clicking the secure link below. This link is for you only and can be used once.</p>
+                <p>You can now edit the note by clicking the secure link below. This link is unique to your request.</p>
                 <a href="${editUrl}" class="button">Edit Note Now</a>
                 <p>If the button doesn't work, please copy and paste this URL into your browser:</p>
                 <p>${editUrl}</p>
             `;
-            // Add the generated token to the URL - this part is tricky without a page to handle it.
-            // Let's assume the session-based approach on the edit page will work.
-            // For a token-based approach, the URL would be like: /notes/edit?token=${updatedRequest.edit_token}
-
         } else { // Rejected
             emailSubject = `Update on your request to edit "${updatedRequest.note.title}"`;
             emailContent = `
