@@ -6,7 +6,7 @@ import Link from 'next/link';
 import { useAuth } from '@/context/AuthContext';
 import { Button } from '@/components/ui/button';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { Loader2, AlertTriangle, ThumbsUp, XCircle, Mail, Check, Ban, Send } from 'lucide-react';
+import { Loader2, AlertTriangle, ThumbsUp, XCircle, Mail, Check, Ban, Send, Trash2 } from 'lucide-react';
 import { format, parseISO } from 'date-fns';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -14,6 +14,18 @@ import { supabase } from '@/lib/supabaseClient';
 import { useToast } from '@/hooks/use-toast';
 import type { NoteEditRequest } from '@/types';
 import { sendEmail } from '@/actions/sendEmailAction';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from '@/components/ui/alert-dialog';
+
 
 export default function EditRequestsPage() {
   const { isAdmin, currentUser } = useAuth();
@@ -128,6 +140,23 @@ export default function EditRequestsPage() {
     }
   }
 
+  const handleDeleteRequest = async (requestId: string) => {
+    if (!supabase) return;
+    setUpdatingId(requestId);
+    try {
+        const { error } = await supabase.from('note_edit_requests').delete().eq('id', requestId);
+        if (error) throw error;
+        toast({ title: 'Request Deleted', description: 'The edit request has been successfully deleted.' });
+        fetchRequests();
+    } catch (e: any) {
+        console.error("Error deleting request:", e);
+        toast({ title: 'Error', description: e.message || `Could not delete request.`, variant: 'destructive' });
+    } finally {
+        setUpdatingId(null);
+    }
+  };
+
+
   const getStatusBadgeVariant = (status: NoteEditRequest['status']) => {
     switch (status) {
       case 'approved': return 'default';
@@ -204,16 +233,41 @@ export default function EditRequestsPage() {
                       </Badge>
                     </TableCell>
                     <TableCell className="text-right">
-                       {request.status === 'pending' && (
-                        <div className="flex justify-end gap-1">
-                          <Button variant="ghost" size="icon" className="text-green-600 hover:text-green-700" onClick={() => handleUpdateRequest(request.id, 'approved')} disabled={updatingId === request.id}>
-                            {updatingId === request.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}
-                          </Button>
-                          <Button variant="ghost" size="icon" className="text-destructive hover:text-destructive/80" onClick={() => handleUpdateRequest(request.id, 'rejected')} disabled={updatingId === request.id}>
-                            <Ban className="h-4 w-4" />
-                          </Button>
+                       <div className="flex justify-end gap-1">
+                          {request.status === 'pending' && (
+                            <>
+                              <Button variant="ghost" size="icon" className="text-green-600 hover:text-green-700" onClick={() => handleUpdateRequest(request.id, 'approved')} disabled={updatingId === request.id} title="Approve Request">
+                                {updatingId === request.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}
+                              </Button>
+                              <Button variant="ghost" size="icon" className="text-destructive hover:text-destructive/80" onClick={() => handleUpdateRequest(request.id, 'rejected')} disabled={updatingId === request.id} title="Reject Request">
+                                <Ban className="h-4 w-4" />
+                              </Button>
+                            </>
+                          )}
+                          {(request.status === 'approved' || request.status === 'rejected') && (
+                            <AlertDialog>
+                              <AlertDialogTrigger asChild>
+                                 <Button variant="ghost" size="icon" className="text-destructive hover:text-destructive/80" disabled={updatingId === request.id} title="Delete Request">
+                                   <Trash2 className="h-4 w-4" />
+                                 </Button>
+                              </AlertDialogTrigger>
+                              <AlertDialogContent>
+                                <AlertDialogHeader>
+                                  <AlertDialogTitle>Are you sure?</AlertDialogTitle>
+                                  <AlertDialogDescription>
+                                    This will permanently delete the edit request. The user will no longer be able to use their edit link. This action cannot be undone.
+                                  </AlertDialogDescription>
+                                </AlertDialogHeader>
+                                <AlertDialogFooter>
+                                  <AlertDialogCancel>Cancel</AlertDialogCancel>
+                                  <AlertDialogAction onClick={() => handleDeleteRequest(request.id)}>
+                                    Yes, delete request
+                                  </AlertDialogAction>
+                                </AlertDialogFooter>
+                              </AlertDialogContent>
+                            </AlertDialog>
+                          )}
                         </div>
-                      )}
                     </TableCell>
                   </TableRow>
                 ))}

@@ -10,7 +10,6 @@ import { supabase } from '@/lib/supabaseClient';
 import { useToast } from '@/hooks/use-toast';
 import type { Note } from '@/types';
 import RichTextEditor from '@/components/ui/rich-text-editor';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from '@/components/ui/form';
 import { Loader2, AlertTriangle, Save, Ban } from 'lucide-react';
@@ -157,47 +156,46 @@ export default function PublicNoteEditPage() {
   }
 
   return (
-    <div className="flex justify-center bg-background py-8 sm:py-12 md:py-16">
-        <div className="max-w-4xl w-full mx-auto space-y-6 px-4">
-            <Form {...form}>
-                <form onSubmit={form.handleSubmit(onSubmit)}>
-                    <Card>
-                        <CardHeader>
-                            <CardTitle>Editing Note: {note?.title}</CardTitle>
-                            <CardDescription>Make your changes below and save. This is a one-time edit session.</CardDescription>
-                        </CardHeader>
-                        <CardContent>
-                            <FormField
-                                control={form.control}
-                                name="content"
-                                render={({ field }) => (
-                                <FormItem>
-                                    <FormLabel className="sr-only">Note Content</FormLabel>
-                                    <FormControl>
-                                        <RichTextEditor 
-                                            value={field.value} 
-                                            onChange={field.onChange}
-                                            placeholder="Write your note here..."
-                                        />
-                                    </FormControl>
-                                    <FormMessage />
-                                </FormItem>
-                                )}
-                            />
-                        </CardContent>
-                        <CardFooter className="flex justify-end gap-2">
-                             <Button type="button" variant="outline" onClick={() => router.push(`/notes/${noteId}`)} disabled={isSubmitting}>
-                                <Ban className="mr-2 h-4 w-4" /> Cancel
-                            </Button>
-                            <Button type="submit" disabled={isSubmitting}>
-                                {isSubmitting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}
-                                Save Changes
-                            </Button>
-                        </CardFooter>
-                    </Card>
-                </form>
-            </Form>
-        </div>
+    <div className="flex flex-col min-h-screen bg-background">
+      <Form {...form}>
+        <form onSubmit={form.handleSubmit(onSubmit)} className="flex flex-col flex-grow">
+          <header className="sticky top-0 z-10 flex h-16 items-center justify-between border-b bg-background px-4 sm:px-6">
+            <div className="flex flex-col">
+              <h1 className="text-lg font-semibold">Editing Note: {note?.title}</h1>
+              <p className="text-sm text-muted-foreground">Make your changes below and save.</p>
+            </div>
+            <div className="flex gap-2">
+              <Button type="button" variant="outline" onClick={() => router.back()} disabled={isSubmitting}>
+                <Ban className="mr-2 h-4 w-4" /> Cancel
+              </Button>
+              <Button type="submit" disabled={isSubmitting}>
+                {isSubmitting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}
+                Save Changes
+              </Button>
+            </div>
+          </header>
+          <main className="flex-grow p-4 sm:p-6 md:p-8">
+            <FormField
+              control={form.control}
+              name="content"
+              render={({ field }) => (
+                <FormItem className="h-full">
+                  <FormLabel className="sr-only">Note Content</FormLabel>
+                  <FormControl>
+                      <RichTextEditor 
+                          value={field.value} 
+                          onChange={field.onChange}
+                          placeholder="Write your note here..."
+                          className="h-full"
+                      />
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+          </main>
+        </form>
+      </Form>
     </div>
-  )
+  );
 }
