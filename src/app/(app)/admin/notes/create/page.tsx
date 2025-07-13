@@ -134,7 +134,6 @@ export default function CreateNotePage() {
         recipient_user_ids: recipients,
         category: values.category,
         visibility: values.visibility,
-        security_key: null, // Password functionality removed
       };
 
       const { data: createdNote, error: noteInsertError } = await supabase

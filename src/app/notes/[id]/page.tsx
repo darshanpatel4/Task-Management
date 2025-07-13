@@ -70,7 +70,7 @@ export default function PublicNotePage() {
     try {
       const { data, error: fetchError } = await supabase
         .from('notes')
-        .select('id, title, content, admin_id, created_at, category, visibility, security_key')
+        .select('id, title, content, admin_id, created_at, category, visibility')
         .eq('id', noteId)
         .eq('visibility', 'public')
         .single();
@@ -93,7 +93,6 @@ export default function PublicNotePage() {
             updated_at: data.created_at,
             category: data.category as Note['category'],
             visibility: data.visibility as Note['visibility'],
-            security_key: data.security_key,
         };
         setNote(fetchedNote);
 
