@@ -47,7 +47,7 @@ export default function ActivityLogsPage() {
         .from('tasks')
         .select('id, title, logs, project:projects (name)')
         .not('logs', 'is', null) // Only fetch tasks that have logs
-        .neq('logs', '[]'::any) // Ensure logs array is not empty
+        .neq('logs', '{}') // Ensure logs array is not empty
         .order('created_at', { ascending: false });
 
       if (fetchError) throw fetchError;
