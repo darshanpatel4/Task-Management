@@ -80,7 +80,7 @@ export type NotificationType =
   | 'generic';
 
 export interface NotificationItem {
-  id: string;
+  id: string; // uuid
   user_id: string; // Recipient
   message: string;
   link?: string | null;
@@ -91,7 +91,6 @@ export interface NotificationItem {
   task_id?: string | null; // Optional: Related task
   project_id?: string | null; // Optional: Related project
   note_id?: string | null; // Optional: Related note
-  triggered_by_profile?: { full_name?: string | null } | null;
 }
 
 export type NoteCategory = 'General' | 'Important' | 'Credentials' | 'Improvement' | 'Action Required';
