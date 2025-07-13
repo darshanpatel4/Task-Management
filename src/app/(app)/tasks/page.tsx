@@ -10,7 +10,7 @@ import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Badge } from '@/components/ui/badge';
-import { PlusCircle, Search, Edit3, Trash2, Eye, Loader2, AlertTriangle } from 'lucide-react';
+import { PlusCircle, Search, Edit3, Trash2, Eye, Loader2, AlertTriangle, History } from 'lucide-react';
 import { format, parseISO } from 'date-fns';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { supabase } from '@/lib/supabaseClient';
@@ -274,11 +274,18 @@ export default function TasksPage() {
           </p>
         </div>
         {isAdmin && (
-          <Link href="/tasks/create">
-            <Button className="mt-4 sm:mt-0" disabled={isLoading || !supabase}>
-              <PlusCircle className="mr-2 h-4 w-4" /> Create Task
-            </Button>
-          </Link>
+          <div className="flex flex-col sm:flex-row gap-2 w-full sm:w-auto mt-4 sm:mt-0">
+            <Link href="/admin/activity-logs">
+              <Button variant="outline" className="w-full" disabled={isLoading || !supabase}>
+                  <History className="mr-2 h-4 w-4" /> View Activity Logs
+              </Button>
+            </Link>
+            <Link href="/tasks/create">
+              <Button className="w-full" disabled={isLoading || !supabase}>
+                <PlusCircle className="mr-2 h-4 w-4" /> Create Task
+              </Button>
+            </Link>
+          </div>
         )}
       </div>
 
