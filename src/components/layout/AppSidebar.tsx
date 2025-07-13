@@ -19,7 +19,6 @@ const navItems: NavItem[] = [
   { href: '/admin/users', label: 'User Management', icon: UsersIconLucide, adminOnly: true, activePathPrefix: '/admin/users' },
   { href: '/admin/approvals', label: 'Task Approvals', icon: CheckCircle2, adminOnly: true, activePathPrefix: '/admin/approvals' },
   { href: '/admin/notes', label: 'Manage Notes', icon: StickyNote, adminOnly: true, activePathPrefix: '/admin/notes' },
-  { href: '/admin/activity-logs', label: 'Activity Logs', icon: History, adminOnly: true, activePathPrefix: '/admin/activity-logs' },
 ];
 
 
