@@ -1,5 +1,6 @@
 
 'use server';
+import 'dotenv/config'; // Make sure environment variables are loaded
 import { createClient } from '@supabase/supabase-js';
 import { z } from 'zod';
 import type { UserRole } from '@/types';
