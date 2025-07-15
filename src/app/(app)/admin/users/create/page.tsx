@@ -25,10 +25,9 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { useAuth } from '@/context/AuthContext';
 import { useRouter } from 'next/navigation';
 import { useToast } from '@/hooks/use-toast';
-import { Loader2, UserPlus, Briefcase, Lock, Mail, User as UserIcon, Award } from 'lucide-react'; // Added Award for Position
+import { Loader2, UserPlus, Briefcase, Lock, Mail, User as UserIcon, Award } from 'lucide-react';
 import { useState } from 'react';
 import type { UserRole } from '@/types';
-import { adminCreateUser } from '@/actions/adminUserActions';
 
 const userCreateFormSchema = z.object({
   fullName: z.string().min(2, { message: 'Full name must be at least 2 characters.' }),
@@ -75,29 +74,39 @@ export default function AdminCreateUserPage() {
 
   async function onSubmit(values: UserCreateFormValues) {
     setIsSubmitting(true);
-    const result = await adminCreateUser({
-      email: values.email,
-      password: values.password,
-      fullName: values.fullName,
-      role: values.role,
-      // Note: The position is handled by a trigger in Supabase from the user_metadata
-      // We are not passing it directly here, but it's part of the standard user creation flow via metadata.
-      // If we wanted to update it separately, we would add it to the adminCreateUser function.
-    });
-
-    if (result.success) {
-      toast({
-        title: 'User Creation Successful',
-        description: result.message,
+    
+    try {
+      const response = await fetch('/api/admin/create-user', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(values),
       });
-      router.push('/admin/users');
-    } else {
+
+      const result = await response.json();
+
+      if (response.ok) {
+        toast({
+          title: 'User Creation Successful',
+          description: result.message,
+        });
+        router.push('/admin/users');
+      } else {
+        toast({
+          title: 'Error Creating User',
+          description: result.message || 'An unknown error occurred.',
+          variant: 'destructive',
+        });
+      }
+    } catch (error) {
       toast({
-        title: 'Error Creating User',
-        description: result.message,
+        title: 'Network Error',
+        description: 'Could not connect to the server. Please check your connection and try again.',
         variant: 'destructive',
       });
     }
+
     setIsSubmitting(false);
   }
 
