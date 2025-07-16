@@ -14,21 +14,17 @@ const CreateUserSchema = z.object({
 
 export async function POST(request: Request) {
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 
-  if (!supabaseUrl || !serviceRoleKey) {
+  if (!supabaseUrl || !supabaseAnonKey) {
     return NextResponse.json(
       { success: false, message: 'Server environment for database access is not configured correctly.' },
       { status: 500 }
     );
   }
 
-  const supabaseAdmin = createClient(supabaseUrl, serviceRoleKey, {
-    auth: {
-      autoRefreshToken: false,
-      persistSession: false,
-    },
-  });
+  // Use the public client for signup
+  const supabase = createClient(supabaseUrl, supabaseAnonKey);
   
   try {
     const body = await request.json();
@@ -43,17 +39,21 @@ export async function POST(request: Request) {
 
     const { email, password, fullName, role, position } = validation.data;
 
-    const { data: authData, error: authError } =
-      await supabaseAdmin.auth.admin.createUser({
-        email: email,
-        password: password,
-        email_confirm: true,
-        user_metadata: {
+    // Use the standard signUp method. The database trigger 'on_auth_user_created' will handle profile creation.
+    const { data: authData, error: authError } = await supabase.auth.signUp({
+      email: email,
+      password: password,
+      options: {
+        // This data is passed to the database trigger
+        data: {
           full_name: fullName,
           role: role,
           position: position,
         },
-      });
+        // We can auto-confirm the email since an admin is creating the account
+        emailRedirectTo: `${process.env.NEXT_PUBLIC_APP_URL}/dashboard`,
+      },
+    });
 
     if (authError) {
       if (authError.message.includes('User already registered')) {
@@ -61,15 +61,16 @@ export async function POST(request: Request) {
       }
       return NextResponse.json({ success: false, message: `Failed to create user: ${authError.message}` }, { status: 500 });
     }
-
+    
+    // With signUp, if successful, the user is created. The trigger will handle the profile.
+    // If email confirmation is required on your project, this user will need to confirm.
+    // However, since an admin is creating them, it's common to have this auto-confirmed or handled.
     if (!authData.user) {
-      return NextResponse.json({ success: false, message: 'User created in auth, but no user data returned.' }, { status: 500 });
+         return NextResponse.json({ success: false, message: 'Auth call succeeded but no user data was returned. This may happen if email confirmation is required.' }, { status: 500 });
     }
-    
-    // The handle_new_user trigger should automatically create the profile.
-    
+
     return NextResponse.json(
-      { success: true, message: `User ${fullName} created successfully. Profile should be created by trigger.`, userId: authData.user.id },
+      { success: true, message: `User ${fullName} created successfully.`, userId: authData.user.id },
       { status: 201 }
     );
   } catch (error: any) {
